@@ -156,7 +156,13 @@ class SQLiteTransactionStore:
             connection.commit()
         return {"inserted": inserted, "skipped": skipped, "import_batch_id": import_batch_id}
 
-    def insert_issued_invoices(self, invoices: Iterable[ImportedInvoice]) -> dict[str, int]:
+    def insert_issued_invoices(
+        self,
+        invoices: Iterable[ImportedInvoice],
+        *,
+        workspace_id: int | None = None,
+        import_batch_id: int | None = None,
+    ) -> dict[str, int]:
         invoice_list = list(invoices)
         inserted = 0
         skipped = 0
@@ -198,8 +204,72 @@ class SQLiteTransactionStore:
                     inserted += 1
                 else:
                     skipped += 1
+                if workspace_id is not None:
+                    self._insert_workspace_invoice_row(
+                        connection,
+                        workspace_id=int(workspace_id),
+                        import_batch_id=import_batch_id,
+                        role="issued",
+                        invoice=invoice,
+                    )
             connection.commit()
         return {"inserted": inserted, "skipped": skipped}
+
+    def insert_invoices(
+        self,
+        *,
+        workspace_id: int,
+        import_batch_id: int | None,
+        role: str,
+        invoices: Iterable[ImportedInvoice],
+    ) -> dict[str, int]:
+        invoice_list = list(invoices)
+        inserted = 0
+        skipped = 0
+        if not invoice_list:
+            return {"inserted": 0, "skipped": 0}
+        normalized_role = role.strip().lower() or "issued"
+        with closing(self.connect()) as connection:
+            for invoice in invoice_list:
+                cursor = self._insert_workspace_invoice_row(
+                    connection,
+                    workspace_id=int(workspace_id),
+                    import_batch_id=import_batch_id,
+                    role=normalized_role,
+                    invoice=invoice,
+                )
+                if cursor.rowcount:
+                    inserted += 1
+                else:
+                    skipped += 1
+            self._refresh_workspace_status(connection, int(workspace_id))
+            connection.commit()
+        return {"inserted": inserted, "skipped": skipped}
+
+    def create_document_import_batch(
+        self,
+        *,
+        source_path: Path | str,
+        workspace_id: int,
+        source_type: str,
+    ) -> int:
+        resolved_path = Path(source_path)
+        with closing(self.connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO import_batches (source_file, source_path, source_type, workspace_id, transaction_count)
+                VALUES (?, ?, ?, ?, 0)
+                """,
+                (
+                    resolved_path.name or str(resolved_path),
+                    str(resolved_path),
+                    source_type,
+                    int(workspace_id),
+                ),
+            )
+            self._refresh_workspace_status(connection, int(workspace_id))
+            connection.commit()
+        return int(cursor.lastrowid)
 
     def reclassify_transactions(self, import_batch_id: int | None = None) -> dict[str, int]:
         clauses: list[str] = []
@@ -589,6 +659,47 @@ class SQLiteTransactionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_workspace_invoices(
+        self,
+        workspace_id: int,
+        *,
+        role: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [int(workspace_id)]
+        role_sql = ""
+        if role:
+            role_sql = "AND role = ?"
+            params.append(role.strip().lower())
+        params.append(int(limit))
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    id,
+                    workspace_id,
+                    import_batch_id,
+                    role,
+                    invoice_number,
+                    issue_date,
+                    counterparty_name,
+                    net_amount,
+                    vat_amount,
+                    total_amount,
+                    currency,
+                    status,
+                    source_file,
+                    created_at
+                FROM invoices
+                WHERE workspace_id = ?
+                {role_sql}
+                ORDER BY issue_date DESC, id DESC
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_review_candidates(
         self,
         *,
@@ -828,6 +939,7 @@ class SQLiteTransactionStore:
 
     def reset_all_data(self) -> None:
         with closing(self.connect()) as connection:
+            connection.execute("DELETE FROM invoices")
             connection.execute("DELETE FROM transaction_category_links")
             connection.execute("DELETE FROM transactions")
             connection.execute("DELETE FROM import_batches")
@@ -1064,6 +1176,52 @@ class SQLiteTransactionStore:
             WHERE id = ?
             """,
             (status, int(workspace_id)),
+        )
+
+    def _insert_workspace_invoice_row(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        workspace_id: int,
+        import_batch_id: int | None,
+        role: str,
+        invoice: ImportedInvoice,
+    ) -> sqlite3.Cursor:
+        return connection.execute(
+            """
+            INSERT OR IGNORE INTO invoices (
+                workspace_id,
+                import_batch_id,
+                role,
+                invoice_number,
+                issue_date,
+                counterparty_name,
+                net_amount,
+                vat_amount,
+                total_amount,
+                currency,
+                status,
+                source_file,
+                raw_payload,
+                row_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(workspace_id),
+                int(import_batch_id) if import_batch_id is not None else None,
+                role.strip().lower(),
+                invoice.invoice_number,
+                invoice.issue_date,
+                invoice.customer_name,
+                invoice.net_amount,
+                invoice.vat_amount,
+                invoice.total_amount,
+                invoice.currency,
+                invoice.status,
+                invoice.source_file,
+                invoice.raw_payload,
+                invoice_row_hash(invoice),
+            ),
         )
 
     def _link_transaction_category(

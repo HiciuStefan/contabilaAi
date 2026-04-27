@@ -2,6 +2,7 @@
 
 from .models import ImportedInvoice, ImportedTransaction, StatementParseResult, StatementValidation
 from .normalize import merchant_from_description, normalize_whitespace, parse_amount, parse_date, sign_amount
+from .importers import import_invoice_documents
 from .parsers import (
     parse_csv,
     parse_issued_invoices_path,
@@ -20,6 +21,7 @@ __all__ = [
     "normalize_whitespace",
     "parse_amount",
     "parse_csv",
+    "import_invoice_documents",
     "parse_issued_invoices_path",
     "parse_date",
     "parse_json",

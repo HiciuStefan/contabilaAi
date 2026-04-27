@@ -183,6 +183,82 @@ class HttpSmokeTest(unittest.TestCase):
             if data_dir.exists():
                 data_dir.rmdir()
 
+    def test_invoice_workspace_endpoints_upload_and_list_items(self) -> None:
+        data_dir = ROOT / "test_http_data_invoice_workspace"
+        invoice_path = ROOT / "_http_workspace_invoice.json"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            invoice_path.write_text(
+                json.dumps(
+                    {
+                        "invoices": [
+                            {
+                                "invoice_number": "INV-HTTP-001",
+                                "issue_date": "2025-03-01",
+                                "customer": "Ai Excellence SRL",
+                                "total": "2380",
+                                "vat": "380",
+                                "currency": "RON",
+                                "status": "issued",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                upload_request = Request(
+                    f"{base_url}/api/invoices/upload",
+                    data=json.dumps(
+                        {
+                            "workspace_id": workspace_id,
+                            "role": "issued",
+                            "path": str(invoice_path),
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(upload_request, timeout=5) as response:
+                    upload_payload = json.loads(response.read().decode("utf-8"))
+
+                with urlopen(
+                    f"{base_url}/api/invoices?workspace_id={workspace_id}&role=issued",
+                    timeout=5,
+                ) as response:
+                    list_payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(upload_payload["imported_count"], 1)
+            self.assertEqual(upload_payload["result"]["inserted"], 1)
+            self.assertEqual(upload_payload["items"][0]["role"], "issued")
+            self.assertEqual(len(list_payload["items"]), 1)
+            self.assertEqual(list_payload["items"][0]["invoice_number"], "INV-HTTP-001")
+            self.assertEqual(list_payload["items"][0]["counterparty_name"], "Ai Excellence SRL")
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+            if invoice_path.exists():
+                invoice_path.unlink()
+
     def test_parse_single_file_multipart_extracts_uploaded_statement(self) -> None:
         boundary = "----ContabilaAiBoundary"
         body = (

@@ -169,6 +169,30 @@ CREATE TABLE IF NOT EXISTS issued_invoices (
 )
 """
 
+INVOICES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    import_batch_id INTEGER,
+    role TEXT NOT NULL,
+    invoice_number TEXT NOT NULL,
+    issue_date TEXT NOT NULL,
+    counterparty_name TEXT NOT NULL,
+    net_amount REAL NOT NULL,
+    vat_amount REAL,
+    total_amount REAL NOT NULL,
+    currency TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'issued',
+    source_file TEXT NOT NULL,
+    raw_payload TEXT NOT NULL,
+    row_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(workspace_id, role, row_hash),
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+    FOREIGN KEY(import_batch_id) REFERENCES import_batches(id) ON DELETE SET NULL
+)
+"""
+
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(WORKSPACES_TABLE_SQL)
@@ -185,6 +209,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(CLASSIFICATION_RULES_TABLE_SQL)
     connection.execute(TRANSACTION_CATEGORY_LINKS_TABLE_SQL)
     connection.execute(ISSUED_INVOICES_TABLE_SQL)
+    connection.execute(INVOICES_TABLE_SQL)
     _ensure_transaction_category_links_shape(connection)
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_transactions_transaction_date ON transactions(transaction_date)"
@@ -228,6 +253,12 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_issued_invoices_customer ON issued_invoices(customer_name)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invoices_workspace_role ON invoices(workspace_id, role, issue_date DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invoices_counterparty ON invoices(counterparty_name)"
     )
 
 

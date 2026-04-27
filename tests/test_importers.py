@@ -14,6 +14,7 @@ if str(SRC_DIR) not in sys.path:
 
 
 from contabila_ai.importing.models import StatementParseResult, StatementValidation  # noqa: E402
+from contabila_ai.importing.importers import import_invoice_documents  # noqa: E402
 from contabila_ai.importing.parsers import (  # noqa: E402
     parse_csv,
     parse_issued_invoices_path,
@@ -48,6 +49,57 @@ def canonical_digexc_invoice_pdf_paths() -> list[Path]:
 
 
 class ImporterTest(unittest.TestCase):
+    def test_import_invoice_documents_records_workspace_role_and_batch(self) -> None:
+        db_path = ROOT / "test_workspace_invoice_hub.sqlite3"
+        invoice_path = ROOT / "_workspace_invoice_hub.json"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            invoice_path.write_text(
+                json.dumps(
+                    {
+                        "invoices": [
+                            {
+                                "invoice_number": "INV-WS-001",
+                                "issue_date": "2025-02-01",
+                                "customer": "Ai Excellence SRL",
+                                "total": "5950",
+                                "vat": "950",
+                                "currency": "RON",
+                                "status": "issued",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+
+            result = import_invoice_documents(
+                store=store,
+                workspace_id=workspace_id,
+                role="issued",
+                source_path=invoice_path,
+            )
+            invoices = store.list_workspace_invoices(workspace_id)
+            imports = store.list_import_batches(workspace_id=workspace_id)
+
+            self.assertEqual(result["invoice_count"], 1)
+            self.assertGreater(result["import_batch_id"], 0)
+            self.assertEqual(result["result"]["inserted"], 1)
+            self.assertEqual(len(invoices), 1)
+            self.assertEqual(invoices[0]["role"], "issued")
+            self.assertEqual(invoices[0]["invoice_number"], "INV-WS-001")
+            self.assertEqual(invoices[0]["counterparty_name"], "Ai Excellence SRL")
+            self.assertEqual(len(imports), 1)
+            self.assertEqual(imports[0]["source_type"], "issued_invoice")
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+            if invoice_path.exists():
+                invoice_path.unlink()
+
     def test_parse_statement_path_dispatches_by_suffix(self) -> None:
         csv_path = ROOT / "_importer_dispatch.csv"
         json_path = ROOT / "_importer_dispatch.json"

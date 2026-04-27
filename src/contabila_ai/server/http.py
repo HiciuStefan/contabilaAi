@@ -10,7 +10,7 @@ import re
 from typing import Any
 from urllib.parse import unquote_plus, urlparse
 
-from contabila_ai.importing import parse_issued_invoices_path, parse_statement_bundle
+from contabila_ai.importing import import_invoice_documents, parse_issued_invoices_path, parse_statement_bundle
 from contabila_ai.memory import BusinessMemoryService
 from contabila_ai.planning import build_query_plan
 from contabila_ai.review import ReviewService
@@ -96,6 +96,19 @@ def import_document_path(
     if source_path.suffix.lower() == ".pdf":
         invoices = parse_issued_invoices_path(source_path)
         if invoices:
+            if workspace_id is not None:
+                invoice_result = import_invoice_documents(
+                    store=services["store"],
+                    workspace_id=workspace_id,
+                    role="issued",
+                    source_path=source_path,
+                )
+                return {
+                    "document_type": "issued_invoices",
+                    **invoice_result,
+                    "invoice_summary": services["store"].issued_invoice_summary(),
+                    "workspace_id": workspace_id,
+                }
             result = services["store"].insert_issued_invoices(invoices)
             return {
                 "document_type": "issued_invoices",
@@ -173,6 +186,20 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/categories":
             self._send_json({"categories": self.services["store"].list_analysis_categories()})
+            return
+        if parsed.path == "/api/invoices":
+            workspace_id = self._parse_workspace_id(parsed.query)
+            if workspace_id is None:
+                raise ValueError("workspace_id is required.")
+            role = self._parse_text_param(parsed.query, "role")
+            self._send_json(
+                {
+                    "items": self.services["store"].list_workspace_invoices(
+                        workspace_id,
+                        role=role,
+                    )
+                }
+            )
             return
         if parsed.path == "/api/business-memory":
             workspace_id = self._parse_workspace_id(parsed.query)
@@ -336,13 +363,22 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
         source_path = Path(str(payload.get("path") or "")).expanduser()
         if not source_path.exists():
             raise FileNotFoundError(f"Missing invoice file: {source_path}")
-        invoices = parse_issued_invoices_path(source_path)
-        result = self.services["store"].insert_issued_invoices(invoices)
+        workspace_id = payload.get("workspace_id")
+        if workspace_id in (None, ""):
+            raise ValueError("workspace_id is required.")
+        role = str(payload.get("role") or "issued").strip() or "issued"
+        result = import_invoice_documents(
+            store=self.services["store"],
+            workspace_id=int(workspace_id),
+            role=role,
+            source_path=source_path,
+        )
         self._send_json(
             {
-                "result": result,
-                "imported_count": len(invoices),
+                **result,
                 "invoice_summary": self.services["store"].issued_invoice_summary(),
+                "workspace_id": int(workspace_id),
+                "role": role,
             }
         )
 
