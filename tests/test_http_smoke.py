@@ -641,6 +641,49 @@ class HttpSmokeTest(unittest.TestCase):
             if statement_path.exists():
                 statement_path.unlink()
 
+    def test_workspace_can_progress_from_import_to_ready_flow(self) -> None:
+        data_dir = ROOT / "test_http_data_workspace_flow"
+        statement_path = ROOT / "_workspace_flow_statement.json"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            statement_path.write_text(
+                json.dumps(
+                    {
+                        "transactions": [
+                            {
+                                "date": "2025-01-10",
+                                "description": "Incasare partener AI Excellence",
+                                "amount": 3200.0,
+                                "currency": "RON",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+
+            import_document_path(services, statement_path, workspace_id=workspace_id)
+            services["memory"].add_instruction(workspace_id, "AI Excellence e partener")
+
+            status = services["workspaces"].list_workspaces()[0]["status"]
+
+            self.assertIn(status, {"needs_review", "ready"})
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+            if statement_path.exists():
+                statement_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

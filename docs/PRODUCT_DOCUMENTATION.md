@@ -555,31 +555,38 @@ User actions:
 
 ## 13. Current Implemented Capabilities
 
-At the current stage of the repository, the product already has a meaningful MVP foundation:
+At the current stage of the repository, the product already implements the main workspace architecture:
 
+- named company workspaces with readiness states
 - local import for bank statements from PDF, CSV, and JSON
+- strict statement validation for supported PDF parsers so declared totals and parsed totals must match
 - SQLite storage
 - custom parsing for real files used by the project
 - local web UI
 - automatic basic transaction classification
 - category metadata and category transaction browsing
-- review queue for low-confidence items
-- natural-language planner for a subset of supported finance questions
-- tests covering storage, import, planner, review, and HTTP smoke flows
+- review queue with `critical`, `high`, `medium`, and `low`
+- query gate that blocks serious questions while `critical` or `high` items remain
+- business memory instructions stored per workspace
+- workspace-scoped invoice hub
+- phase 1 invoice matching
+- change review workflow for category proposals
+- natural-language planner for a subset of supported finance questions, now scoped to workspace and project filters
+- onboarding shell that distinguishes `workspace home`, `onboarding`, and `ready workspace`
+- tests covering storage, import, planner, matching, change review, review, workspaces, and HTTP smoke flows
 
-This is not yet the full target architecture, but it is a strong implementation base.
+This is still not the final target product, but it is now well beyond a generic MVP bootstrap.
 
 ## 14. Current Gaps Relative to Target Product
 
-The major gaps between the current MVP and the intended full product are:
+The major gaps between the current implementation and the intended full product are:
 
-- no persistent workspace-per-company model yet
-- no first-class project layer yet
-- no full business-memory system yet
-- no formal query gate based on severity
-- no full invoice reprocessing and change-review loop yet
-- matching is not yet a full dedicated engine
-- onboarding is not yet a proper wizard
+- project support exists in planner and business facts, but not yet as a full first-class editing UI
+- business memory parsing is still deterministic and intentionally narrow
+- invoice matching is phase 1 only and still needs installment and many-to-many support
+- change review is implemented for category proposals, but not yet for the full field matrix
+- onboarding exists as a shell and routing model, but still needs richer step-specific UI
+- the invoice hub and matching need deeper analytics and operator tooling
 
 ## 15. Architecture Direction
 
@@ -647,11 +654,12 @@ Use deterministic code for:
 ### Phase 1
 
 - workspace model
-- onboarding wizard
+- onboarding shell
 - severity-based review gate
 - business memory foundation
 - invoice hub
 - matching engine phase 1
+- change review foundation
 - planner upgrade
 
 ### Phase 2
@@ -659,6 +667,7 @@ Use deterministic code for:
 - installment and many-to-many matching
 - stronger project-aware analytics
 - deeper memory editing and rule management
+- full onboarding wizard experience
 
 ## 20. Operational Notes
 
