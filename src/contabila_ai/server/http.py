@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import unquote_plus, urlparse
 
 from contabila_ai.importing import import_invoice_documents, parse_issued_invoices_path, parse_statement_bundle
+from contabila_ai.matching import MatchingService
 from contabila_ai.memory import BusinessMemoryService
 from contabila_ai.planning import build_query_plan
 from contabila_ai.review import ReviewService
@@ -36,6 +37,7 @@ def build_app_services(
     store = SQLiteTransactionStore(db_path)
     review = ReviewService(store)
     memory = BusinessMemoryService(store)
+    matching = MatchingService(store)
     workspaces = WorkspaceService(store, review)
     services = {
         "root_dir": root_dir,
@@ -45,6 +47,7 @@ def build_app_services(
         "store": store,
         "review": review,
         "memory": memory,
+        "matching": matching,
         "workspaces": workspaces,
         "startup_import": None,
     }
@@ -373,9 +376,11 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             role=role,
             source_path=source_path,
         )
+        matches = self.services["matching"].match_workspace(workspace_id=int(workspace_id))
         self._send_json(
             {
                 **result,
+                "matches": matches,
                 "invoice_summary": self.services["store"].issued_invoice_summary(),
                 "workspace_id": int(workspace_id),
                 "role": role,

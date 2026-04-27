@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from contabila_ai.importing.parsers import parse_issued_invoices_path
-from contabila_ai.storage.store import SQLiteTransactionStore
+
+if TYPE_CHECKING:
+    from contabila_ai.storage.store import SQLiteTransactionStore
 
 
 def import_invoice_documents(

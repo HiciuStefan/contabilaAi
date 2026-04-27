@@ -700,6 +700,145 @@ class SQLiteTransactionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_workspace_invoices_for_matching(self, workspace_id: int) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    i.id,
+                    i.workspace_id,
+                    i.import_batch_id,
+                    i.role,
+                    i.invoice_number,
+                    i.issue_date,
+                    i.counterparty_name,
+                    i.total_amount,
+                    i.currency
+                FROM invoices AS i
+                LEFT JOIN invoice_matches AS im
+                    ON im.invoice_id = i.id
+                   AND im.status IN ('proposed', 'accepted')
+                WHERE i.workspace_id = ?
+                  AND im.id IS NULL
+                ORDER BY i.issue_date ASC, i.id ASC
+                """,
+                (int(workspace_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_unmatched_workspace_transactions(self, workspace_id: int) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    t.id,
+                    t.transaction_date,
+                    t.amount,
+                    t.currency,
+                    t.merchant,
+                    t.description,
+                    ib.workspace_id
+                FROM transactions AS t
+                INNER JOIN import_batches AS ib
+                    ON ib.id = t.import_batch_id
+                LEFT JOIN invoice_matches AS im
+                    ON im.transaction_id = t.id
+                   AND im.status IN ('proposed', 'accepted')
+                WHERE ib.workspace_id = ?
+                  AND im.id IS NULL
+                  AND t.amount < 0
+                ORDER BY t.transaction_date ASC, t.id ASC
+                """,
+                (int(workspace_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_invoice_match(
+        self,
+        *,
+        workspace_id: int,
+        transaction_id: int,
+        invoice_id: int,
+        match_kind: str,
+        matched_amount: float,
+        residual_amount: float,
+        confidence: float,
+        reasoning: str,
+        status: str = "proposed",
+    ) -> dict[str, Any]:
+        with closing(self.connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO invoice_matches (
+                    workspace_id,
+                    transaction_id,
+                    invoice_id,
+                    match_kind,
+                    matched_amount,
+                    residual_amount,
+                    confidence,
+                    reasoning,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(workspace_id),
+                    int(transaction_id),
+                    int(invoice_id),
+                    match_kind,
+                    float(matched_amount),
+                    float(residual_amount),
+                    float(confidence),
+                    reasoning,
+                    status,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    transaction_id,
+                    invoice_id,
+                    match_kind,
+                    matched_amount,
+                    residual_amount,
+                    confidence,
+                    reasoning,
+                    status,
+                    created_at
+                FROM invoice_matches
+                WHERE id = ?
+                """,
+                (int(cursor.lastrowid),),
+            ).fetchone()
+            connection.commit()
+        return dict(row)
+
+    def list_invoice_matches(self, workspace_id: int) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    transaction_id,
+                    invoice_id,
+                    match_kind,
+                    matched_amount,
+                    residual_amount,
+                    confidence,
+                    reasoning,
+                    status,
+                    created_at
+                FROM invoice_matches
+                WHERE workspace_id = ?
+                ORDER BY id ASC
+                """,
+                (int(workspace_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_review_candidates(
         self,
         *,
@@ -939,6 +1078,7 @@ class SQLiteTransactionStore:
 
     def reset_all_data(self) -> None:
         with closing(self.connect()) as connection:
+            connection.execute("DELETE FROM invoice_matches")
             connection.execute("DELETE FROM invoices")
             connection.execute("DELETE FROM transaction_category_links")
             connection.execute("DELETE FROM transactions")

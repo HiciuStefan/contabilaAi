@@ -193,6 +193,25 @@ CREATE TABLE IF NOT EXISTS invoices (
 )
 """
 
+INVOICE_MATCHES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS invoice_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    transaction_id INTEGER NOT NULL,
+    invoice_id INTEGER NOT NULL,
+    match_kind TEXT NOT NULL,
+    matched_amount REAL NOT NULL,
+    residual_amount REAL NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL,
+    reasoning TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+    FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
+    FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+)
+"""
+
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(WORKSPACES_TABLE_SQL)
@@ -210,6 +229,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(TRANSACTION_CATEGORY_LINKS_TABLE_SQL)
     connection.execute(ISSUED_INVOICES_TABLE_SQL)
     connection.execute(INVOICES_TABLE_SQL)
+    connection.execute(INVOICE_MATCHES_TABLE_SQL)
     _ensure_transaction_category_links_shape(connection)
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_transactions_transaction_date ON transactions(transaction_date)"
@@ -259,6 +279,15 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_invoices_counterparty ON invoices(counterparty_name)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invoice_matches_workspace ON invoice_matches(workspace_id, status, created_at DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invoice_matches_transaction ON invoice_matches(transaction_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_invoice_matches_invoice ON invoice_matches(invoice_id)"
     )
 
 

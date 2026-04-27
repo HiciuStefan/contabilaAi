@@ -259,6 +259,87 @@ class HttpSmokeTest(unittest.TestCase):
             if invoice_path.exists():
                 invoice_path.unlink()
 
+    def test_invoice_upload_triggers_matching_proposals_for_workspace(self) -> None:
+        data_dir = ROOT / "test_http_data_invoice_matching"
+        invoice_path = ROOT / "_http_workspace_matching_invoice.json"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            invoice_path.write_text(
+                json.dumps(
+                    {
+                        "invoices": [
+                            {
+                                "invoice_number": "INV-MATCH-001",
+                                "issue_date": "2025-03-01",
+                                "customer": "Casa Decor SRL",
+                                "total": "750",
+                                "vat": "0",
+                                "currency": "RON",
+                                "status": "issued",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-03-15",
+                        description="Plata partiala factura Casa Decor",
+                        amount=-500.0,
+                        currency="RON",
+                        balance=3200.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"http-match-tx"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                upload_request = Request(
+                    f"{base_url}/api/invoices/upload",
+                    data=json.dumps(
+                        {
+                            "workspace_id": workspace_id,
+                            "role": "received",
+                            "path": str(invoice_path),
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(upload_request, timeout=5) as response:
+                    upload_payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(upload_payload["matches"][0]["match_kind"], "partial_payment")
+            self.assertEqual(upload_payload["matches"][0]["matched_amount"], 500.0)
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+            if invoice_path.exists():
+                invoice_path.unlink()
+
     def test_parse_single_file_multipart_extracts_uploaded_statement(self) -> None:
         boundary = "----ContabilaAiBoundary"
         body = (
