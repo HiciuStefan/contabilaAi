@@ -359,14 +359,24 @@ def parse_ing_pdf(reader: PdfReader, path: Path) -> list[ImportedTransaction]:
         if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", line):
             i += 1
             continue
-        if i + 1 >= len(lines) or not re.match(r"^\d+$", lines[i + 1]):
-            i += 1
-            continue
 
         tx_date = parse_date(line)
-        reference_number = lines[i + 1]
+        reference_number = ""
+        i += 1
+        while i < len(lines):
+            current = lines[i]
+            if re.match(r"^\d{2}\.\d{2}\.\d{4}$", current):
+                break
+            if should_skip_ing_line(current):
+                i += 1
+                continue
+            reference_number = current
+            i += 1
+            break
+        if not reference_number:
+            continue
+
         detail_lines: list[str] = []
-        i += 2
         while i < len(lines):
             current = lines[i]
             amount_match = ING_AMOUNT_BALANCE_RE.match(current)

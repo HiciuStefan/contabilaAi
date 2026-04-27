@@ -314,10 +314,10 @@ class ImporterTest(unittest.TestCase):
 
         transactions = parse_pdf(path)
 
-        self.assertEqual(len(transactions), 2611)
+        self.assertEqual(len(transactions), 3336)
         self.assertAlmostEqual(sum(tx.amount for tx in transactions if tx.amount > 0), 26716896.81, places=2)
-        self.assertAlmostEqual(sum(-tx.amount for tx in transactions if tx.amount < 0), 26656372.06, places=2)
-        self.assertAlmostEqual(sum(tx.amount for tx in transactions), 60524.75, places=2)
+        self.assertAlmostEqual(sum(-tx.amount for tx in transactions if tx.amount < 0), 26662604.83, places=2)
+        self.assertAlmostEqual(sum(tx.amount for tx in transactions), 54291.98, places=2)
         first = transactions[0]
         self.assertEqual(first.transaction_date, "2020-05-14")
         self.assertEqual(first.description, "Incoming funds | Capital social Hiciu Stefan | 371663778")
@@ -327,7 +327,7 @@ class ImporterTest(unittest.TestCase):
         self.assertEqual(first.merchant, "Hiciu Stefan")
         self.assertEqual(first.source_file, str(path))
 
-    def test_real_ing_pdf_validation_detects_mismatch(self) -> None:
+    def test_real_ing_pdf_validation_matches_statement_totals_and_counts(self) -> None:
         path = canonical_ing_pdf_path()
         if path is None:
             self.skipTest("MobExc ING PDF fixture is missing from Date/MobExc.")
@@ -335,10 +335,13 @@ class ImporterTest(unittest.TestCase):
         bundle = parse_statement_bundle(path)
 
         self.assertTrue(bundle.validation.available)
-        self.assertFalse(bundle.validation.passed)
-        self.assertIn("transaction_count_mismatch", bundle.validation.errors)
-        self.assertIn("outflow_count_mismatch", bundle.validation.errors)
-        self.assertNotIn("contains_inferred_transactions", bundle.validation.errors)
+        self.assertTrue(bundle.validation.passed)
+        self.assertEqual(bundle.validation.declared_transaction_count, 3336)
+        self.assertEqual(bundle.validation.parsed_transaction_count, 3336)
+        self.assertAlmostEqual(bundle.validation.declared_total_income, 26716896.81, places=2)
+        self.assertAlmostEqual(bundle.validation.parsed_total_income, 26716896.81, places=2)
+        self.assertAlmostEqual(bundle.validation.declared_total_expenses, 26662604.83, places=2)
+        self.assertAlmostEqual(bundle.validation.parsed_total_expenses, 26662604.83, places=2)
         self.assertEqual(bundle.validation.inferred_transaction_count, 0)
 
     def test_imported_statement_summary_matches_statement_totals(self) -> None:
