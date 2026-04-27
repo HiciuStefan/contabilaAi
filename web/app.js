@@ -2,6 +2,11 @@ const workspaceCreateForm = document.getElementById("workspace-create-form");
 const workspaceNameInput = document.getElementById("workspace-name");
 const workspaceList = document.getElementById("workspace-list");
 const workspaceCurrent = document.getElementById("workspace-current");
+const workspaceHome = document.getElementById("workspace-home");
+const onboardingWizard = document.getElementById("onboarding-wizard");
+const onboardingStatus = document.getElementById("onboarding-status");
+const workspaceApp = document.getElementById("workspace-app");
+const businessMemoryPanel = document.getElementById("business-memory-panel");
 const uploadPathInput = document.getElementById("upload-path");
 const uploadFileInput = document.getElementById("upload-file");
 const uploadButton = document.getElementById("upload-button");
@@ -34,6 +39,26 @@ let activeImportId = null;
 let currentWorkspaceId = null;
 let currentWorkspaceName = null;
 let knownCategories = [];
+
+function setWorkspaceView(mode) {
+  workspaceHome.hidden = mode !== "home";
+  onboardingWizard.hidden = mode !== "onboarding";
+  workspaceApp.hidden = mode !== "app";
+  businessMemoryPanel.hidden = mode !== "app";
+}
+
+function syncWorkspaceView(workspace) {
+  if (!workspace) {
+    setWorkspaceView("home");
+    return;
+  }
+  if (workspace.status === "ready") {
+    setWorkspaceView("app");
+    return;
+  }
+  onboardingStatus.textContent = `Firma ${workspace.name} este in starea ${workspace.status}. Continua cu importul, instructiunile de business si review-ul important.`;
+  setWorkspaceView("onboarding");
+}
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -75,6 +100,7 @@ function renderWorkspaceList(items) {
   if (!items.length) {
     workspaceList.innerHTML = '<p class="muted">Nu exista inca firme salvate. Creeaza prima firma mai sus.</p>';
     workspaceCurrent.textContent = "Nicio firma selectata inca.";
+    syncWorkspaceView(null);
     return;
   }
 
@@ -95,6 +121,7 @@ function renderWorkspaceList(items) {
   currentWorkspaceId = Number(active.id);
   currentWorkspaceName = active.name;
   workspaceCurrent.textContent = `Firma activa: ${active.name} (${active.status})`;
+  syncWorkspaceView(active);
 }
 
 async function loadWorkspaces(preferredWorkspaceId = currentWorkspaceId) {

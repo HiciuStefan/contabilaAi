@@ -453,6 +453,45 @@ button:hover {
   margin-top: 18px;
 }
 
+.workspace-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+
+.workspace-tab {
+  margin-top: 0;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  border: 1px solid rgba(18, 104, 92, 0.14);
+  box-shadow: none;
+}
+
+.workspace-tab.is-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  box-shadow: 0 12px 24px rgba(13, 107, 93, 0.22);
+}
+
+.onboarding-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.onboarding-step {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(18, 104, 92, 0.12);
+  background: rgba(255, 252, 245, 0.88);
+}
+
+.onboarding-step p {
+  margin: 8px 0 0;
+}
+
 .workspace-chip {
   display: grid;
   gap: 4px;
@@ -495,6 +534,10 @@ button:hover {
   }
 
   .workspace-create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-grid {
     grid-template-columns: 1fr;
   }
 }

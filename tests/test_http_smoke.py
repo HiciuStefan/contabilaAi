@@ -36,6 +36,14 @@ class HttpSmokeTest(unittest.TestCase):
         self.assertIn('id="workspace-list"', index_html)
         self.assertIn('id="workspace-create-form"', index_html)
 
+    def test_index_contains_workspace_and_onboarding_sections(self) -> None:
+        index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="workspace-home"', index_html)
+        self.assertIn('id="onboarding-wizard"', index_html)
+        self.assertIn('id="workspace-app"', index_html)
+        self.assertIn('id="business-memory-panel"', index_html)
+
     def test_workspaces_endpoint_creates_and_lists_workspace(self) -> None:
         data_dir = ROOT / "test_http_data_workspaces"
         if data_dir.exists():
