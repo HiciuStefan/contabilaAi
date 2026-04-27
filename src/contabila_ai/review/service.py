@@ -50,25 +50,29 @@ class ReviewService:
         self,
         limit: int = 25,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> list[dict[str, Any]]:
         rows = self.store.list_review_candidates(
             limit=limit,
             confidence_threshold=self.confidence_threshold,
             import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
         )
         for row in rows:
             category_names = row.pop("category_names", "") or ""
             row["analysis_categories"] = [
                 name for name in category_names.split(",") if name
             ]
+            row["severity"] = self._severity_for_row(row)
         return rows
 
     def candidate_groups(
         self,
         limit: int = 25,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> list[dict[str, Any]]:
-        rows = self.candidates(limit=limit, import_batch_id=import_batch_id)
+        rows = self.candidates(limit=limit, import_batch_id=import_batch_id, workspace_id=workspace_id)
         category_profiles = self._category_profiles(import_batch_id=import_batch_id)
         groups: dict[str, dict[str, Any]] = {}
 
@@ -87,6 +91,7 @@ class ReviewService:
                     "min_confidence": row.get("confidence"),
                     "total_amount": 0.0,
                     "samples": [],
+                    "severity": row.get("severity") or "low",
                 }
                 groups[group_key] = existing
 
@@ -102,6 +107,7 @@ class ReviewService:
                     existing["analysis_categories"].append(category_name)
             if len(existing["samples"]) < 3:
                 existing["samples"].append(row)
+            existing["severity"] = self._max_severity(existing["severity"], row.get("severity") or "low")
             suggestions = self._suggest_categories_for_row(row, category_profiles)
             for suggestion in suggestions:
                 if suggestion not in existing["suggested_categories"]:
@@ -111,6 +117,7 @@ class ReviewService:
         grouped_rows.sort(
             key=lambda item: (
                 float(item["min_confidence"]) if item["min_confidence"] is not None else 0.0,
+                self._severity_rank(item["severity"]),
                 -int(item["transaction_count"]),
                 str(item["group_label"]),
             )
@@ -122,6 +129,28 @@ class ReviewService:
                 item["suggested_categories"][0] if item["suggested_categories"] else None
             )
         return grouped_rows
+
+    def severity_counts(
+        self,
+        *,
+        workspace_id: int | None = None,
+        import_batch_id: int | None = None,
+        limit: int = 1000,
+    ) -> dict[str, int]:
+        counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for row in self.candidates(limit=limit, import_batch_id=import_batch_id, workspace_id=workspace_id):
+            severity = row.get("severity") or "low"
+            counts[severity] = counts.get(severity, 0) + 1
+        return counts
+
+    def has_blocking_items(
+        self,
+        *,
+        workspace_id: int | None = None,
+        import_batch_id: int | None = None,
+    ) -> bool:
+        counts = self.severity_counts(workspace_id=workspace_id, import_batch_id=import_batch_id)
+        return counts.get("critical", 0) > 0 or counts.get("high", 0) > 0
 
     def apply_category(
         self,
@@ -336,3 +365,24 @@ class ReviewService:
                 token = token[:-3]
             stemmed_tokens.append(token)
         return " ".join(stemmed_tokens)
+
+    def _severity_for_row(self, row: dict[str, Any]) -> str:
+        amount_abs = abs(float(row.get("amount") or 0))
+        confidence = float(row.get("confidence") or 0)
+        has_category = bool(row.get("analysis_categories"))
+        if row.get("direction") in (None, "", "both"):
+            return "critical"
+        if amount_abs >= 10000 and not has_category:
+            return "critical"
+        if amount_abs >= 2500 or confidence < 0.4:
+            return "high"
+        if amount_abs >= 500 or confidence < 0.6:
+            return "medium"
+        return "low"
+
+    def _severity_rank(self, severity: str) -> int:
+        ranks = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        return ranks.get(severity, 99)
+
+    def _max_severity(self, left: str, right: str) -> str:
+        return left if self._severity_rank(left) <= self._severity_rank(right) else right

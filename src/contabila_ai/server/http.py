@@ -34,7 +34,7 @@ def build_app_services(
     web_dir = root_dir / "web"
     store = SQLiteTransactionStore(db_path)
     review = ReviewService(store)
-    workspaces = WorkspaceService(store)
+    workspaces = WorkspaceService(store, review)
     services = {
         "root_dir": root_dir,
         "data_dir": resolved_data_dir,
@@ -180,14 +180,21 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/review":
             limit = self._parse_limit(parsed.query)
             import_batch_id = self._parse_import_id(parsed.query)
+            workspace_id = self._parse_workspace_id(parsed.query)
             self._send_json(
                 {
-                    "rows": self.services["review"].candidates(limit=limit, import_batch_id=import_batch_id),
+                    "rows": self.services["review"].candidates(
+                        limit=limit,
+                        import_batch_id=import_batch_id,
+                        workspace_id=workspace_id,
+                    ),
                     "groups": self.services["review"].candidate_groups(
                         limit=limit,
                         import_batch_id=import_batch_id,
+                        workspace_id=workspace_id,
                     ),
                     "import_batch_id": import_batch_id,
+                    "workspace_id": workspace_id,
                 }
             )
             return
@@ -333,7 +340,27 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Question is required.")
         store = self.services["store"]
         import_batch_id = payload.get("import_batch_id")
+        workspace_id = payload.get("workspace_id")
         resolved_import_batch_id = None if import_batch_id in (None, "") else int(import_batch_id)
+        resolved_workspace_id = None if workspace_id in (None, "") else int(workspace_id)
+        if resolved_workspace_id is not None and self.services["review"].has_blocking_items(workspace_id=resolved_workspace_id):
+            self._send_json(
+                {
+                    "answer": "Mai ai tranzactii cu severitate critical sau high de revizuit inainte de intrebari serioase.",
+                    "import_batch_id": resolved_import_batch_id,
+                    "workspace_id": resolved_workspace_id,
+                    "plan": {
+                        "mode": "aggregate",
+                        "metric": "unsupported",
+                        "metric_label": "review gate",
+                        "support_level": "blocked",
+                    },
+                    "rows": [],
+                    "transaction_rows": [],
+                    "review_counts": self.services["review"].severity_counts(workspace_id=resolved_workspace_id),
+                }
+            )
+            return
         plan = build_query_plan(question)
         execution = store.execute_plan_for_import(
             plan,
@@ -347,6 +374,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             {
                 "answer": render_answer(plan, execution.rows),
                 "import_batch_id": resolved_import_batch_id,
+                "workspace_id": resolved_workspace_id,
                 "plan": {
                     "mode": plan.mode,
                     "metric": plan.metric,
@@ -365,6 +393,9 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 },
                 "rows": execution.rows,
                 "transaction_rows": transaction_rows,
+                "review_counts": self.services["review"].severity_counts(workspace_id=resolved_workspace_id)
+                if resolved_workspace_id is not None
+                else None,
             }
         )
 

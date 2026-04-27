@@ -24,7 +24,7 @@ from contabila_ai.server.http import (  # noqa: E402
     import_document_path,
     parse_single_file_multipart,
 )
-from contabila_ai.importing.models import StatementParseResult, StatementValidation  # noqa: E402
+from contabila_ai.importing.models import ImportedTransaction, StatementParseResult, StatementValidation  # noqa: E402
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
@@ -71,6 +71,66 @@ class HttpSmokeTest(unittest.TestCase):
             self.assertGreater(create_payload["workspace_id"], 0)
             self.assertEqual(list_payload["items"][0]["name"], "MobExc")
             self.assertEqual(list_payload["items"][0]["status"], "needs_import")
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
+    def test_chat_blocks_when_workspace_has_critical_review_items(self) -> None:
+        data_dir = ROOT / "test_http_data_review_gate"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-06-01",
+                        description="Plata contractor major fara categorie",
+                        amount=-15000.0,
+                        currency="RON",
+                        balance=8500.0,
+                        merchant="Contractor Mare SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"sev-1"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                request = Request(
+                    f"{base_url}/api/chat",
+                    data=json.dumps(
+                        {
+                            "workspace_id": workspace_id,
+                            "question": "cat am platit catre contractor mare",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(payload["plan"]["support_level"], "blocked")
+            self.assertIn("critical", payload["review_counts"])
         finally:
             db_path = data_dir / "contabila_ai.sqlite3"
             if db_path.exists():

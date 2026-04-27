@@ -573,7 +573,12 @@ async function loadReview() {
     reviewList.innerHTML = '<p class="muted">Alege un import activ pentru review.</p>';
     return;
   }
-  const payload = await requestJson(`/api/review?import_id=${encodeURIComponent(activeImportId)}`);
+  const params = new URLSearchParams();
+  params.set("workspace_id", String(currentWorkspaceId));
+  if (activeImportId !== null) {
+    params.set("import_id", String(activeImportId));
+  }
+  const payload = await requestJson(`/api/review?${params.toString()}`);
   await loadCategories();
   renderReviewGroups(payload.groups || []);
 }
@@ -703,7 +708,11 @@ questionButton.addEventListener("click", async () => {
   try {
     const payload = await requestJson("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ question: questionInput.value, import_batch_id: activeImportId }),
+      body: JSON.stringify({
+        question: questionInput.value,
+        import_batch_id: activeImportId,
+        workspace_id: currentWorkspaceId,
+      }),
     });
     answerBox.textContent = payload.answer;
     renderChatRows(payload.transaction_rows && payload.transaction_rows.length ? payload.transaction_rows : payload.rows);

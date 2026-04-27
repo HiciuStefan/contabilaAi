@@ -355,15 +355,15 @@ class ReviewServiceTest(unittest.TestCase):
             groups = service.candidate_groups(limit=10)
 
             self.assertEqual(len(groups), 2)
-            self.assertEqual(groups[0]["group_label"], "CEMI CONCEPT TEC SRL")
-            self.assertEqual(groups[0]["transaction_count"], 2)
-            self.assertEqual(groups[0]["transaction_ids"], sorted(groups[0]["transaction_ids"]))
+            cemi_group = next(group for group in groups if group["group_label"] == "CEMI CONCEPT TEC SRL")
+            eldam_group = next(group for group in groups if group["group_label"] == "ELDAM SRL")
+            self.assertEqual(cemi_group["transaction_count"], 2)
+            self.assertEqual(cemi_group["transaction_ids"], sorted(cemi_group["transaction_ids"]))
             self.assertEqual(
-                [sample["merchant"] for sample in groups[0]["samples"]],
+                [sample["merchant"] for sample in cemi_group["samples"]],
                 ["CEMI CONCEPT TEC SRL", "CEMI CONCEPT TEC SRL"],
             )
-            self.assertEqual(groups[1]["group_label"], "ELDAM SRL")
-            self.assertEqual(groups[1]["transaction_count"], 1)
+            self.assertEqual(eldam_group["transaction_count"], 1)
         finally:
             if db_path.exists():
                 db_path.unlink()
@@ -529,6 +529,51 @@ class ReviewServiceTest(unittest.TestCase):
                 ],
             )
             self.assertTrue(all(row["operational_scope"] == "non_operational" for row in links))
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_candidate_groups_include_review_severity(self) -> None:
+        db_path = ROOT / "test_review_severity.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-06-01",
+                        description="Plata contractor major fara categorie",
+                        amount=-15000.0,
+                        currency="RON",
+                        balance=8500.0,
+                        merchant="Contractor Mare SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"sev-1"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-06-02",
+                        description="Plata mica ocazionala",
+                        amount=-120.0,
+                        currency="RON",
+                        balance=8380.0,
+                        merchant="Magazin Mic",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"sev-2"}',
+                    ),
+                ],
+                workspace_id=workspace_id,
+            )
+
+            service = ReviewService(store)
+            groups = service.candidate_groups(limit=10, workspace_id=workspace_id)
+            counts = service.severity_counts(workspace_id=workspace_id)
+
+            severities = {group["severity"] for group in groups}
+            self.assertIn("critical", severities)
+            self.assertGreaterEqual(counts["critical"], 1)
+            self.assertTrue(service.has_blocking_items(workspace_id=workspace_id))
         finally:
             if db_path.exists():
                 db_path.unlink()

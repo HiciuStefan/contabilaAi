@@ -17,7 +17,7 @@ PLANNER_METRICS = (
     "unsupported",
 )
 PLANNER_GROUPINGS = ("year", "half_year")
-PLANNER_SUPPORT_LEVELS = ("exact", "estimated", "unsupported", "clarify")
+PLANNER_SUPPORT_LEVELS = ("exact", "estimated", "unsupported", "clarify", "blocked")
 
 
 @dataclass(frozen=True, slots=True)

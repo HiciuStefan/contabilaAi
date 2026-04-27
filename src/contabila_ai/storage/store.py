@@ -517,6 +517,7 @@ class SQLiteTransactionStore:
         limit: int = 25,
         confidence_threshold: float = 0.75,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> list[dict[str, Any]]:
         clauses = [
             "(COALESCE(t.confidence, 0) < ? OR t.direction IS NULL)",
@@ -527,6 +528,18 @@ class SQLiteTransactionStore:
         if import_batch_id is not None:
             clauses.append("t.import_batch_id = ?")
             params.append(int(import_batch_id))
+        if workspace_id is not None:
+            clauses.append(
+                """
+                EXISTS (
+                    SELECT 1
+                    FROM import_batches AS ib
+                    WHERE ib.id = t.import_batch_id
+                      AND ib.workspace_id = ?
+                )
+                """.strip()
+            )
+            params.append(int(workspace_id))
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 f"""
