@@ -72,3 +72,45 @@ class BusinessMemoryTest(unittest.TestCase):
         finally:
             if db_path.exists():
                 db_path.unlink()
+
+    def test_business_instruction_supports_entity_type_correction_wording(self) -> None:
+        db_path = ROOT / "test_business_memory_correction.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            service = BusinessMemoryService(store)
+
+            result = service.add_instruction(workspace_id, "AI Excellence nu e partener, e colaborator")
+            facts = result["facts"]
+
+            self.assertEqual(result["fact_count"], 1)
+            self.assertEqual(facts[0]["fact_type"], "entity_type")
+            self.assertEqual(facts[0]["subject_name"], "AI Excellence")
+            self.assertEqual(facts[0]["fact_value"], "colaborator")
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_business_instruction_supports_project_assignment_with_pentru_proiectul(self) -> None:
+        db_path = ROOT / "test_business_memory_project_phrase.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            service = BusinessMemoryService(store)
+
+            result = service.add_instruction(
+                workspace_id,
+                "colaboratorii Casa Decor SRL si Sergiu Munteanu lucreaza pentru proiectul Casa Noua",
+            )
+            facts = result["facts"]
+
+            self.assertEqual(result["fact_count"], 2)
+            self.assertEqual({fact["fact_type"] for fact in facts}, {"project_assignment"})
+            self.assertEqual({fact["fact_value"] for fact in facts}, {"Casa Noua"})
+        finally:
+            if db_path.exists():
+                db_path.unlink()

@@ -17,6 +17,7 @@ ENTITY_TYPE_MAP = {
     "banca": "bank",
     "stat": "state",
 }
+ENTITY_LABEL_PATTERN = "|".join(re.escape(label) for label in ENTITY_TYPE_MAP)
 
 
 class BusinessMemoryService:
@@ -52,6 +53,28 @@ def parse_instruction_to_facts(raw_text: str) -> list[BusinessFact]:
     lowered = text.lower()
     facts: list[BusinessFact] = []
 
+    correction_match = re.search(
+        rf"(?P<subject>.+?)\s+nu\s+e\s+(?P<old>{ENTITY_LABEL_PATTERN})\s*,?\s*(?:dar\s+)?e\s+(?P<new>{ENTITY_LABEL_PATTERN})(?:\b|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if correction_match:
+        subject_name = correction_match.group("subject").strip(" ,.")
+        corrected_label = correction_match.group("new").lower()
+        if subject_name:
+            return [BusinessFact(fact_type="entity_type", subject_name=subject_name, fact_value=corrected_label)]
+
+    entity_match = re.search(
+        rf"(?P<subject>.+?)\s+(?:este|e)\s+(?P<label>{ENTITY_LABEL_PATTERN})(?:\b|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if entity_match:
+        subject_name = entity_match.group("subject").strip(" ,.")
+        entity_label = entity_match.group("label").lower()
+        if subject_name:
+            return [BusinessFact(fact_type="entity_type", subject_name=subject_name, fact_value=entity_label)]
+
     for romanian_label in ENTITY_TYPE_MAP:
         suffix = f" e {romanian_label}"
         if lowered.endswith(suffix):
@@ -60,7 +83,11 @@ def parse_instruction_to_facts(raw_text: str) -> list[BusinessFact]:
                 facts.append(BusinessFact(fact_type="entity_type", subject_name=subject_name, fact_value=romanian_label))
                 return facts
 
-    project_match = re.search(r"(?P<people>.+?)\s+lucreaza pe proiectul\s+(?P<project>.+)$", text, re.IGNORECASE)
+    project_match = re.search(
+        r"(?P<people>.+?)\s+lucreaza\s+(?:pe|pentru|la)\s+proiectul\s+(?P<project>.+)$",
+        text,
+        re.IGNORECASE,
+    )
     if project_match:
         project_name = project_match.group("project").strip(" .")
         people_blob = project_match.group("people")
