@@ -432,10 +432,12 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
         execution = store.execute_plan_for_import(
             plan,
             import_batch_id=resolved_import_batch_id,
+            workspace_id=resolved_workspace_id,
         )
         transaction_rows = store.list_matching_transactions_for_plan(
             plan,
             import_batch_id=resolved_import_batch_id,
+            workspace_id=resolved_workspace_id,
         )
         self._send_json(
             {
@@ -453,6 +455,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                     "excluded_economic_kinds": plan.excluded_economic_kinds,
                     "analysis_category": plan.analysis_category,
                     "entity_name": plan.entity_name,
+                    "project_name": getattr(plan, "project_name", None),
                     "direction": plan.direction,
                     "requested_profit": plan.requested_profit,
                     "creditare_focus": getattr(plan, "creditare_focus", None),

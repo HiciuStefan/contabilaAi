@@ -125,6 +125,7 @@ def build_query_plan(question: str) -> QueryPlan:
     if metric_info["metric"] == "creditare_vs_recuperare":
         economic_kind = None
     analysis_category = _detect_analysis_category(normalized)
+    project_name = _detect_project_name(normalized)
     mode = _detect_mode(normalized, analysis_category)
     entity_name = _detect_entity_name(normalized, mode, analysis_category)
     direction = _detect_direction(normalized, economic_kind, requested_profit, str(metric_info["metric"]))
@@ -145,6 +146,7 @@ def build_query_plan(question: str) -> QueryPlan:
         excluded_economic_kinds=list(metric_info["excluded_economic_kinds"]),
         analysis_category=analysis_category,
         entity_name=entity_name,
+        project_name=project_name,
         direction=direction,
         requested_profit=requested_profit,
         creditare_focus=creditare_focus,
@@ -292,6 +294,13 @@ def _detect_analysis_category(question: str) -> str | None:
         if match:
             return _clean_capture(match.group(1))
     return None
+
+
+def _detect_project_name(question: str) -> str | None:
+    match = re.search(r"proiectul\s+([a-z0-9 .&_-]+?)(?:[?.!,]|$)", question)
+    if not match:
+        return None
+    return _clean_capture(match.group(1))
 
 
 def _detect_entity_name(

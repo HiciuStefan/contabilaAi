@@ -34,6 +34,8 @@ class QueryPlan:
     excluded_economic_kinds: list[str] = field(default_factory=list)
     analysis_category: str | None = None
     entity_name: str | None = None
+    project_name: str | None = None
+    workspace_id: int | None = None
     direction: str = "both"
     requested_profit: bool = False
     creditare_focus: str | None = None

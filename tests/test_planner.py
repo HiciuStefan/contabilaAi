@@ -109,6 +109,12 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(plan.support_level, "clarify")
         self.assertEqual(plan.entity_name, "ai excellence")
 
+    def test_build_query_plan_extracts_project_name(self) -> None:
+        plan = build_query_plan("cat am platit pe proiectul Casa Noua")
+
+        self.assertEqual(plan.project_name, "casa noua")
+        self.assertEqual(plan.direction, "outflow")
+
     def test_build_query_plan_extracts_entity_name_for_aggregate_counterparty_question(self) -> None:
         plan = build_query_plan("cate plati am facut catre ai excellence")
 
@@ -184,6 +190,68 @@ class PlannerTest(unittest.TestCase):
                     {"group_key": "2024", "metric_value": 2000.0, "transaction_count": 1},
                     {"group_key": "2025", "metric_value": 3000.0, "transaction_count": 1},
                 ],
+            )
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_store_execute_plan_filters_by_project_assignment_inside_workspace(self) -> None:
+        db_path = ROOT / "test_planner_project_filter.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-05-10",
+                        description="Plata colaborator proiect Casa Noua",
+                        amount=-1200.0,
+                        currency="RON",
+                        balance=8800.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{\"id\":\"project-house\"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-05-11",
+                        description="Plata colaborator proiect App Core",
+                        amount=-800.0,
+                        currency="RON",
+                        balance=8000.0,
+                        merchant="Dev Sprint SRL",
+                        source_file="statement.csv",
+                        raw_payload='{\"id\":\"project-app\"}',
+                    ),
+                ],
+                workspace_id=workspace_id,
+            )
+            instruction_id = store.add_business_instruction(
+                workspace_id=workspace_id,
+                raw_text="Casa Decor SRL lucreaza pe proiectul Casa Noua",
+            )
+            # direct seed because this test exercises planner/store filtering, not parser behavior
+            from contabila_ai.memory.models import BusinessFact  # noqa: E402
+
+            store.add_business_facts(
+                workspace_id=workspace_id,
+                instruction_id=instruction_id,
+                facts=[
+                    BusinessFact(
+                        fact_type="project_assignment",
+                        subject_name="Casa Decor SRL",
+                        fact_value="Casa Noua",
+                    )
+                ],
+            )
+
+            plan = build_query_plan("cat am platit pe proiectul Casa Noua")
+            result = store.execute_plan_for_import(plan, workspace_id=workspace_id)
+
+            self.assertEqual(
+                result.rows,
+                [{"group_key": None, "metric_value": 1200.0, "transaction_count": 1}],
             )
         finally:
             if db_path.exists():

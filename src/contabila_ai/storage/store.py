@@ -1317,11 +1317,16 @@ class SQLiteTransactionStore:
         self,
         plan: QueryPlan,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> QueryExecution:
         if plan.metric == "unsupported":
             return QueryExecution(plan=plan, sql="", params=(), rows=[])
         if plan.metric == "creditare_vs_recuperare":
-            sql, params = self._build_creditare_recovery_query(plan, import_batch_id=import_batch_id)
+            sql, params = self._build_creditare_recovery_query(
+                plan,
+                import_batch_id=import_batch_id,
+                workspace_id=workspace_id,
+            )
             rows = self.query(sql, params)
             return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
         if plan.metric == "operational_income_estimate" and self._has_matching_issued_invoices(plan):
@@ -1329,9 +1334,9 @@ class SQLiteTransactionStore:
             rows = self.query(sql, params)
             return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
         if plan.mode == "search":
-            sql, params = self._build_search_query(plan, import_batch_id=import_batch_id)
+            sql, params = self._build_search_query(plan, import_batch_id=import_batch_id, workspace_id=workspace_id)
         else:
-            sql, params = self._build_aggregate_query(plan, import_batch_id=import_batch_id)
+            sql, params = self._build_aggregate_query(plan, import_batch_id=import_batch_id, workspace_id=workspace_id)
         rows = self.query(sql, params)
         return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
 
@@ -1339,14 +1344,21 @@ class SQLiteTransactionStore:
         self,
         plan: QueryPlan,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> list[dict[str, Any]]:
         if plan.metric == "unsupported":
             return []
         if plan.metric == "creditare_vs_recuperare":
-            return self.query(*self._build_creditare_recovery_rows_query(plan, import_batch_id=import_batch_id))
+            return self.query(
+                *self._build_creditare_recovery_rows_query(
+                    plan,
+                    import_batch_id=import_batch_id,
+                    workspace_id=workspace_id,
+                )
+            )
         if plan.metric == "operational_income_estimate" and self._has_matching_issued_invoices(plan):
             return self.query(*self._build_invoice_rows_query(plan))
-        sql, params = self._build_search_query(plan, import_batch_id=import_batch_id)
+        sql, params = self._build_search_query(plan, import_batch_id=import_batch_id, workspace_id=workspace_id)
         return self.query(sql, params)
 
     def summary(self, import_batch_id: int | None = None) -> dict[str, Any]:
@@ -1622,8 +1634,14 @@ class SQLiteTransactionStore:
         plan: QueryPlan,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
-        where_sql, params = self._plan_filters(plan, table_alias="t", import_batch_id=import_batch_id)
+        where_sql, params = self._plan_filters(
+            plan,
+            table_alias="t",
+            import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
+        )
         sql = f"""
             SELECT
                 t.transaction_date,
@@ -1645,8 +1663,14 @@ class SQLiteTransactionStore:
         plan: QueryPlan,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
-        where_sql, params = self._plan_filters(plan, table_alias="t", import_batch_id=import_batch_id)
+        where_sql, params = self._plan_filters(
+            plan,
+            table_alias="t",
+            import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
+        )
         group_select = "NULL AS group_key"
         group_by_sql = ""
         order_by_sql = ""
@@ -1716,8 +1740,13 @@ class SQLiteTransactionStore:
         plan: QueryPlan,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
-        where_sql, params = self._creditare_recovery_filters(plan, import_batch_id=import_batch_id)
+        where_sql, params = self._creditare_recovery_filters(
+            plan,
+            import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
+        )
         sql = f"""
             SELECT
                 economic_kind AS group_key,
@@ -1739,8 +1768,13 @@ class SQLiteTransactionStore:
         plan: QueryPlan,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
-        where_sql, params = self._creditare_recovery_filters(plan, import_batch_id=import_batch_id)
+        where_sql, params = self._creditare_recovery_filters(
+            plan,
+            import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
+        )
         sql = f"""
             SELECT
                 transaction_date,
@@ -1762,12 +1796,18 @@ class SQLiteTransactionStore:
         plan: QueryPlan,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
         clauses = ["economic_kind IN ('creditare', 'recuperare_creditare')"]
         params: list[Any] = []
         if import_batch_id is not None:
             clauses.append("import_batch_id = ?")
             params.append(int(import_batch_id))
+        if workspace_id is not None:
+            clauses.append(
+                "import_batch_id IN (SELECT id FROM import_batches WHERE workspace_id = ?)"
+            )
+            params.append(int(workspace_id))
         if plan.years:
             placeholders = ", ".join("?" for _ in plan.years)
             clauses.append(f"CAST(strftime('%Y', transaction_date) AS INTEGER) IN ({placeholders})")
@@ -1819,6 +1859,7 @@ class SQLiteTransactionStore:
         table_alias: str,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -1826,6 +1867,11 @@ class SQLiteTransactionStore:
         if import_batch_id is not None:
             clauses.append(f"{table_alias}.import_batch_id = ?")
             params.append(int(import_batch_id))
+        if workspace_id is not None:
+            clauses.append(
+                f"{table_alias}.import_batch_id IN (SELECT id FROM import_batches WHERE workspace_id = ?)"
+            )
+            params.append(int(workspace_id))
 
         if plan.years:
             placeholders = ", ".join("?" for _ in plan.years)
@@ -1874,6 +1920,21 @@ class SQLiteTransactionStore:
         if plan.entity_name:
             clauses.append(f"LOWER(COALESCE({table_alias}.merchant, '')) LIKE ?")
             params.append(f"%{plan.entity_name.lower()}%")
+
+        if plan.project_name:
+            clauses.append(
+                f"""
+                EXISTS (
+                    SELECT 1
+                    FROM business_facts AS bf
+                    WHERE bf.workspace_id = ?
+                      AND bf.fact_type = 'project_assignment'
+                      AND LOWER(bf.fact_value) = ?
+                      AND LOWER(bf.subject_name) = LOWER(COALESCE({table_alias}.merchant, ''))
+                )
+                """.strip()
+            )
+            params.extend([int(workspace_id or plan.workspace_id or 0), plan.project_name.lower()])
 
         if plan.direction == "inflow":
             clauses.append(f"{table_alias}.amount > 0")
