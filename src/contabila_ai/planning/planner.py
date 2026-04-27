@@ -108,6 +108,14 @@ ESTIMATED_METRIC_PATTERNS = (
     ("cheltuieli operationale", "operational_expense_estimate", "cheltuieli operationale"),
     ("cheltuieli operationale", "operational_expense_estimate", "cheltuieli operationale"),
 )
+OUTSTANDING_INVOICE_TOKENS = (
+    "facturi neplatite",
+    "facturi neachitate",
+    "sold facturi",
+    "rest de plata pe facturi",
+    "cat mai am de platit pe facturile primite",
+    "cat mai am de platit la furnizori",
+)
 OPERATIONAL_INCOME_EXCLUSIONS = ["creditare", "internal_transfer"]
 OPERATIONAL_EXPENSE_EXCLUSIONS = ["recuperare_creditare", "internal_transfer"]
 CREDITARE_FOCUS_RECOVERY_TOKENS = ("recuper", "inapoi", "return")
@@ -224,6 +232,13 @@ def _detect_metric_info(question: str, requested_profit: bool) -> dict[str, obje
         return {
             "metric": "creditare_vs_recuperare",
             "label": "creditare si recuperare creditare",
+            "support_level": "exact",
+            "excluded_economic_kinds": [],
+        }
+    if any(token in question for token in OUTSTANDING_INVOICE_TOKENS):
+        return {
+            "metric": "invoice_residual_total",
+            "label": "sold facturi primite",
             "support_level": "exact",
             "excluded_economic_kinds": [],
         }
@@ -369,6 +384,7 @@ def _default_metric_label(metric: str) -> str:
         "expense_total": "plati",
         "income_total": "incasari",
         "net_cashflow": "cashflow net",
+        "invoice_residual_total": "sold facturi primite",
         "total_amount": "suma",
         "creditare_vs_recuperare": "creditare si recuperare creditare",
     }

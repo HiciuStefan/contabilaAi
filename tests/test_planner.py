@@ -64,6 +64,14 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(plan.creditare_focus, "remaining")
         self.assertTrue(plan.include_creditare_balance)
 
+    def test_build_query_plan_detects_outstanding_received_invoice_balance(self) -> None:
+        plan = build_query_plan("cat mai am de platit pe facturile primite")
+
+        self.assertEqual(plan.mode, "aggregate")
+        self.assertEqual(plan.metric, "invoice_residual_total")
+        self.assertEqual(plan.support_level, "exact")
+        self.assertEqual(plan.metric_label, "sold facturi primite")
+
     def test_build_query_plan_extracts_half_year_house_expense_question(self) -> None:
         plan = build_query_plan("pe jumatate de an, cat am avut cheltuielile cu casa")
 
@@ -632,6 +640,81 @@ class PlannerTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_store_execute_plan_returns_received_invoice_residual_total(self) -> None:
+        db_path = ROOT / "test_planner_invoice_residual.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            import_batch_id = store.create_document_import_batch(
+                source_path=ROOT / "_planner_received_invoice.json",
+                workspace_id=workspace_id,
+                source_type="received_invoice",
+            )
+            store.insert_invoices(
+                workspace_id=workspace_id,
+                import_batch_id=import_batch_id,
+                role="received",
+                invoices=[
+                    ImportedInvoice(
+                        invoice_number="R-1000",
+                        issue_date="2025-03-01",
+                        customer_name="Casa Decor SRL",
+                        net_amount=840.34,
+                        vat_amount=159.66,
+                        total_amount=1000.0,
+                        currency="RON",
+                        status="issued",
+                        source_file="received.json",
+                        raw_payload='{"invoice":"R-1000"}',
+                    )
+                ],
+            )
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-03-10",
+                        description="Plata partiala factura R-1000",
+                        amount=-400.0,
+                        currency="RON",
+                        balance=4600.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"pay-r-1000"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            store.create_invoice_match(
+                workspace_id=workspace_id,
+                transaction_id=store.list_transactions(workspace_id=workspace_id, limit=1)[0]["id"],
+                invoice_id=store.list_workspace_invoices(workspace_id, role="received", limit=1)[0]["id"],
+                match_kind="partial_payment",
+                matched_amount=400.0,
+                residual_amount=600.0,
+                confidence=0.9,
+                reasoning="seeded for residual query",
+            )
+
+            plan = build_query_plan("cat mai am de platit pe facturile primite")
+            result = store.execute_plan_for_import(plan, workspace_id=workspace_id)
+
+            self.assertEqual(
+                result.rows,
+                [
+                    {
+                        "group_key": None,
+                        "metric_value": 600.0,
+                        "transaction_count": 1,
+                        "source": "received_invoices",
+                    }
+                ],
+            )
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
     def test_store_uses_real_invoice_pdfs_for_turnover_by_year(self) -> None:
         invoice_paths = sorted((ROOT / "Date" / "DigExc").glob("f_*.pdf"))
         if not invoice_paths:
@@ -748,6 +831,17 @@ class PlannerTest(unittest.TestCase):
         )
 
         self.assertIn("mai ai de recuperat 322999.49", answer.lower())
+
+    def test_render_answer_for_invoice_residual_metric(self) -> None:
+        plan = build_query_plan("cat mai am de platit pe facturile primite")
+
+        answer = render_answer(
+            plan,
+            [{"group_key": None, "metric_value": 600.0, "transaction_count": 1, "source": "received_invoices"}],
+        )
+
+        self.assertIn("sold facturi primite neacoperite: 600.0", answer.lower())
+        self.assertIn("din 1 facturi", answer.lower())
 
 
 if __name__ == "__main__":

@@ -1346,6 +1346,10 @@ class SQLiteTransactionStore:
             sql, params = self._build_creditare_recovery_query(plan)
             rows = self.query(sql, params)
             return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
+        if plan.metric == "invoice_residual_total":
+            sql, params = self._build_invoice_residual_query(plan)
+            rows = self.query(sql, params)
+            return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
         if plan.metric == "operational_income_estimate" and self._has_matching_issued_invoices(plan):
             sql, params = self._build_invoice_turnover_query(plan)
             rows = self.query(sql, params)
@@ -1369,6 +1373,13 @@ class SQLiteTransactionStore:
             sql, params = self._build_creditare_recovery_query(
                 plan,
                 import_batch_id=import_batch_id,
+                workspace_id=workspace_id,
+            )
+            rows = self.query(sql, params)
+            return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
+        if plan.metric == "invoice_residual_total":
+            sql, params = self._build_invoice_residual_query(
+                plan,
                 workspace_id=workspace_id,
             )
             rows = self.query(sql, params)
@@ -1397,6 +1408,13 @@ class SQLiteTransactionStore:
                 *self._build_creditare_recovery_rows_query(
                     plan,
                     import_batch_id=import_batch_id,
+                    workspace_id=workspace_id,
+                )
+            )
+        if plan.metric == "invoice_residual_total":
+            return self.query(
+                *self._build_invoice_residual_rows_query(
+                    plan,
                     workspace_id=workspace_id,
                 )
             )
@@ -1884,6 +1902,122 @@ class SQLiteTransactionStore:
             LIMIT {int(plan.limit)}
         """
         return sql.strip(), params
+
+    def _build_invoice_residual_query(
+        self,
+        plan: QueryPlan,
+        *,
+        workspace_id: int | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        where_sql, params = self._invoice_residual_filters(plan, workspace_id=workspace_id)
+        group_select = "NULL AS group_key"
+        group_by_sql = ""
+        order_by_sql = ""
+        if plan.group_by == "year":
+            group_select = "strftime('%Y', issue_date) AS group_key"
+            group_by_sql = "GROUP BY strftime('%Y', issue_date)"
+            order_by_sql = "ORDER BY group_key ASC"
+        sql = f"""
+            SELECT
+                {group_select},
+                ROUND(COALESCE(SUM(remaining_amount), 0), 2) AS metric_value,
+                COUNT(*) AS transaction_count,
+                'received_invoices' AS source
+            FROM (
+                SELECT
+                    i.id,
+                    i.issue_date,
+                    ROUND(
+                        i.total_amount - COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN im.status IN ('proposed', 'accepted')
+                                    THEN im.matched_amount
+                                    ELSE 0
+                                END
+                            ),
+                            0
+                        ),
+                        2
+                    ) AS remaining_amount
+                FROM invoices AS i
+                LEFT JOIN invoice_matches AS im
+                    ON im.invoice_id = i.id
+                WHERE i.role = 'received'
+                GROUP BY i.id, i.issue_date, i.total_amount
+            ) AS residuals
+            {where_sql}
+            {group_by_sql}
+            {order_by_sql}
+        """
+        return sql.strip(), params
+
+    def _build_invoice_residual_rows_query(
+        self,
+        plan: QueryPlan,
+        *,
+        workspace_id: int | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        where_sql, params = self._invoice_residual_filters(plan, workspace_id=workspace_id)
+        sql = f"""
+            SELECT
+                issue_date AS transaction_date,
+                counterparty_name AS merchant,
+                'Factura primita ' || invoice_number AS description,
+                remaining_amount AS amount,
+                currency,
+                'invoice_residual' AS economic_kind,
+                'outflow' AS direction
+            FROM (
+                SELECT
+                    i.id,
+                    i.invoice_number,
+                    i.issue_date,
+                    i.counterparty_name,
+                    i.currency,
+                    ROUND(
+                        i.total_amount - COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN im.status IN ('proposed', 'accepted')
+                                    THEN im.matched_amount
+                                    ELSE 0
+                                END
+                            ),
+                            0
+                        ),
+                        2
+                    ) AS remaining_amount
+                FROM invoices AS i
+                LEFT JOIN invoice_matches AS im
+                    ON im.invoice_id = i.id
+                WHERE i.role = 'received'
+                GROUP BY i.id, i.invoice_number, i.issue_date, i.counterparty_name, i.currency, i.total_amount
+            ) AS residuals
+            {where_sql}
+            ORDER BY issue_date DESC, merchant ASC
+            LIMIT {int(plan.limit)}
+        """
+        return sql.strip(), params
+
+    def _invoice_residual_filters(
+        self,
+        plan: QueryPlan,
+        *,
+        workspace_id: int | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        clauses = ["remaining_amount > 0.01"]
+        params: list[Any] = []
+        if workspace_id is not None:
+            clauses.append(
+                "id IN (SELECT i.id FROM invoices AS i WHERE i.workspace_id = ?)"
+            )
+            params.append(int(workspace_id))
+        if plan.years:
+            placeholders = ", ".join("?" for _ in plan.years)
+            clauses.append(f"CAST(strftime('%Y', issue_date) AS INTEGER) IN ({placeholders})")
+            params.extend(plan.years)
+        return "WHERE " + " AND ".join(clauses), tuple(params)
 
     def _invoice_filters(self, plan: QueryPlan) -> tuple[str, tuple[Any, ...]]:
         clauses = ["LOWER(status) NOT IN ('cancelled', 'canceled', 'stornata', 'storno')"]

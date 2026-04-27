@@ -836,6 +836,22 @@ def render_answer(plan: Any, rows: list[dict[str, Any]]) -> str:
         if include_balance:
             answer += f" Ramas de recuperat: {remaining}."
         return answer
+    if plan.metric == "invoice_residual_total":
+        if not rows:
+            return "Nu am gasit facturi primite cu sold restant in selectia ceruta."
+        if plan.group_by:
+            parts = [
+                f"{row['group_key']}: {row['metric_value']} ({row.get('transaction_count', 0)} facturi)"
+                for row in rows
+            ]
+            return "Sold facturi primite neacoperite (calcul exact): " + "; ".join(parts)
+        metric_value = rows[0]["metric_value"]
+        invoice_count = rows[0].get("transaction_count", 0)
+        return (
+            "Calcul exact din facturi primite si plati asociate. "
+            f"Sold facturi primite neacoperite: {metric_value} "
+            f"(din {invoice_count} facturi)."
+        )
     if getattr(plan, "support_level", "exact") == "estimated":
         if not rows:
             return (

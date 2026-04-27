@@ -11,6 +11,7 @@ PLANNER_METRICS = (
     "income_total",
     "net_cashflow",
     "transaction_count",
+    "invoice_residual_total",
     "operational_income_estimate",
     "operational_expense_estimate",
     "creditare_vs_recuperare",
