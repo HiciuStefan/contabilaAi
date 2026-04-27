@@ -562,13 +562,17 @@ class SQLiteTransactionStore:
         category_name: str,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         params: list[Any] = [category_name.lower()]
-        import_sql = ""
+        filter_sql = ""
         if import_batch_id is not None:
-            import_sql = "AND t.import_batch_id = ?"
+            filter_sql += " AND t.import_batch_id = ?"
             params.append(int(import_batch_id))
+        if workspace_id is not None:
+            filter_sql += " AND t.import_batch_id IN (SELECT id FROM import_batches WHERE workspace_id = ?)"
+            params.append(int(workspace_id))
         params.append(int(limit))
         return self.query(
             f"""
@@ -597,7 +601,7 @@ class SQLiteTransactionStore:
             LEFT JOIN analysis_categories AS ac_all
                 ON ac_all.id = tcl_all.category_id
             WHERE LOWER(ac_filter.name) = ?
-            {import_sql}
+            {filter_sql}
             GROUP BY
                 t.id,
                 t.import_batch_id,
@@ -1180,6 +1184,7 @@ class SQLiteTransactionStore:
         self,
         *,
         import_batch_id: int | None = None,
+        workspace_id: int | None = None,
         min_abs_amount: float | None = None,
         max_abs_amount: float | None = None,
         direction: str | None = None,
@@ -1192,6 +1197,9 @@ class SQLiteTransactionStore:
         if import_batch_id is not None:
             clauses.append("t.import_batch_id = ?")
             params.append(int(import_batch_id))
+        if workspace_id is not None:
+            clauses.append("t.import_batch_id IN (SELECT id FROM import_batches WHERE workspace_id = ?)")
+            params.append(int(workspace_id))
         if min_abs_amount is not None:
             clauses.append("ABS(t.amount) >= ?")
             params.append(float(min_abs_amount))
@@ -1397,12 +1405,21 @@ class SQLiteTransactionStore:
         sql, params = self._build_search_query(plan, import_batch_id=import_batch_id, workspace_id=workspace_id)
         return self.query(sql, params)
 
-    def summary(self, import_batch_id: int | None = None) -> dict[str, Any]:
-        where_sql = ""
-        params: tuple[Any, ...] = ()
+    def summary(
+        self,
+        import_batch_id: int | None = None,
+        *,
+        workspace_id: int | None = None,
+    ) -> dict[str, Any]:
+        clauses: list[str] = []
+        params: list[Any] = []
         if import_batch_id is not None:
-            where_sql = "WHERE import_batch_id = ?"
-            params = (int(import_batch_id),)
+            clauses.append("import_batch_id = ?")
+            params.append(int(import_batch_id))
+        if workspace_id is not None:
+            clauses.append("import_batch_id IN (SELECT id FROM import_batches WHERE workspace_id = ?)")
+            params.append(int(workspace_id))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with closing(self.connect()) as connection:
             row = connection.execute(
                 f"""
@@ -1416,7 +1433,7 @@ class SQLiteTransactionStore:
                 FROM transactions
                 {where_sql}
                 """,
-                params,
+                tuple(params),
             ).fetchone()
         return dict(row)
 

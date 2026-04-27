@@ -196,11 +196,16 @@ async function loadCategoryCatalog() {
   }
   const categoryRows = await Promise.all(
     categories.map(async (category) => {
-      const payload = await requestJson(
-        `/api/category-transactions?category_name=${encodeURIComponent(category.name)}&limit=25${
-          activeImportId === null ? "" : `&import_id=${encodeURIComponent(activeImportId)}`
-        }`
-      );
+      const params = new URLSearchParams();
+      params.set("category_name", category.name);
+      params.set("limit", "25");
+      if (currentWorkspaceId !== null) {
+        params.set("workspace_id", String(currentWorkspaceId));
+      }
+      if (activeImportId !== null) {
+        params.set("import_id", String(activeImportId));
+      }
+      const payload = await requestJson(`/api/category-transactions?${params.toString()}`);
       return {
         ...category,
         rows: payload.rows || [],
@@ -211,11 +216,16 @@ async function loadCategoryCatalog() {
 }
 
 async function loadSummary() {
-  if (activeImportId === null) {
-    summaryBox.textContent = "Niciun import activ.";
+  if (currentWorkspaceId === null) {
+    summaryBox.textContent = "Nicio firma activa.";
     return;
   }
-  const payload = await requestJson(`/api/summary?import_id=${encodeURIComponent(activeImportId)}`);
+  const params = new URLSearchParams();
+  params.set("workspace_id", String(currentWorkspaceId));
+  if (activeImportId !== null) {
+    params.set("import_id", String(activeImportId));
+  }
+  const payload = await requestJson(`/api/summary?${params.toString()}`);
   summaryBox.textContent = JSON.stringify(payload, null, 2);
 }
 
@@ -457,12 +467,15 @@ function renderCategoryCatalog(categories) {
 }
 
 async function loadTransactions() {
-  if (activeImportId === null) {
-    transactionsList.innerHTML = '<p class="muted">Alege un import activ pentru registrul de tranzactii.</p>';
+  if (currentWorkspaceId === null) {
+    transactionsList.innerHTML = '<p class="muted">Selecteaza o firma pentru registrul de tranzactii.</p>';
     return;
   }
   const params = new URLSearchParams();
-  params.set("import_id", String(activeImportId));
+  params.set("workspace_id", String(currentWorkspaceId));
+  if (activeImportId !== null) {
+    params.set("import_id", String(activeImportId));
+  }
   params.set("limit", "100");
   if (txMinAmountInput.value.trim()) {
     params.set("min_abs_amount", txMinAmountInput.value.trim());

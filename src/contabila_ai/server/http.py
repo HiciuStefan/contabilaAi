@@ -179,7 +179,12 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"items": self.services["workspaces"].list_workspaces()})
             return
         if parsed.path == "/api/summary":
-            self._send_json(self.services["store"].summary(import_batch_id=self._parse_import_id(parsed.query)))
+            self._send_json(
+                self.services["store"].summary(
+                    import_batch_id=self._parse_import_id(parsed.query),
+                    workspace_id=self._parse_workspace_id(parsed.query),
+                )
+            )
             return
         if parsed.path == "/api/imports":
             self._send_json(
@@ -344,6 +349,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_transactions(self, query: str) -> None:
         import_batch_id = self._parse_import_id(query)
+        workspace_id = self._parse_workspace_id(query)
         min_abs_amount = self._parse_float_param(query, "min_abs_amount")
         max_abs_amount = self._parse_float_param(query, "max_abs_amount")
         direction = self._parse_text_param(query, "direction")
@@ -352,6 +358,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
         limit = self._parse_limit(query)
         rows = self.services["store"].list_transactions(
             import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
             min_abs_amount=min_abs_amount,
             max_abs_amount=max_abs_amount,
             direction=direction,
@@ -366,10 +373,12 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
         if not category_name:
             raise ValueError("category_name is required.")
         import_batch_id = self._parse_import_id(query)
+        workspace_id = self._parse_workspace_id(query)
         limit = self._parse_limit(query)
         rows = self.services["store"].list_transactions_for_category(
             category_name,
             import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
             limit=limit,
         )
         self._send_json({"rows": rows, "category_name": category_name})

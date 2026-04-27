@@ -479,6 +479,74 @@ class HttpSmokeTest(unittest.TestCase):
             if data_dir.exists():
                 data_dir.rmdir()
 
+    def test_transactions_endpoint_is_scoped_by_workspace(self) -> None:
+        data_dir = ROOT / "test_http_data_transactions_workspace_scope"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_a = services["store"].create_workspace("MobExc")
+            workspace_b = services["store"].create_workspace("DigExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-10",
+                        description="Plata colaborator MobExc",
+                        amount=-1000.0,
+                        currency="RON",
+                        balance=1000.0,
+                        merchant="Vendor MobExc",
+                        source_file="mob.csv",
+                        raw_payload='{"id":"mob-1"}',
+                    )
+                ],
+                workspace_id=workspace_a,
+            )
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-11",
+                        description="Plata colaborator DigExc",
+                        amount=-2000.0,
+                        currency="RON",
+                        balance=2000.0,
+                        merchant="Vendor DigExc",
+                        source_file="dig.csv",
+                        raw_payload='{"id":"dig-1"}',
+                    )
+                ],
+                workspace_id=workspace_b,
+            )
+
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                with urlopen(
+                    f"{base_url}/api/transactions?workspace_id={workspace_a}&limit=50",
+                    timeout=5,
+                ) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(len(payload["rows"]), 1)
+            self.assertEqual(payload["rows"][0]["merchant"], "Vendor MobExc")
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
     def test_parse_single_file_multipart_extracts_uploaded_statement(self) -> None:
         boundary = "----ContabilaAiBoundary"
         body = (
