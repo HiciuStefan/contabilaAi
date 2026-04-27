@@ -314,10 +314,10 @@ class ImporterTest(unittest.TestCase):
 
         transactions = parse_pdf(path)
 
-        self.assertEqual(len(transactions), 3322)
+        self.assertEqual(len(transactions), 2611)
         self.assertAlmostEqual(sum(tx.amount for tx in transactions if tx.amount > 0), 26716896.81, places=2)
-        self.assertAlmostEqual(sum(-tx.amount for tx in transactions if tx.amount < 0), 26662604.83, places=2)
-        self.assertAlmostEqual(sum(tx.amount for tx in transactions), 54291.98, places=2)
+        self.assertAlmostEqual(sum(-tx.amount for tx in transactions if tx.amount < 0), 26656372.06, places=2)
+        self.assertAlmostEqual(sum(tx.amount for tx in transactions), 60524.75, places=2)
         first = transactions[0]
         self.assertEqual(first.transaction_date, "2020-05-14")
         self.assertEqual(first.description, "Incoming funds | Capital social Hiciu Stefan | 371663778")
@@ -338,7 +338,8 @@ class ImporterTest(unittest.TestCase):
         self.assertFalse(bundle.validation.passed)
         self.assertIn("transaction_count_mismatch", bundle.validation.errors)
         self.assertIn("outflow_count_mismatch", bundle.validation.errors)
-        self.assertIn("contains_inferred_transactions", bundle.validation.errors)
+        self.assertNotIn("contains_inferred_transactions", bundle.validation.errors)
+        self.assertEqual(bundle.validation.inferred_transaction_count, 0)
 
     def test_imported_statement_summary_matches_statement_totals(self) -> None:
         path = canonical_garanti_pdf_path()

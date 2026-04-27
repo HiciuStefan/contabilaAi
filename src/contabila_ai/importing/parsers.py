@@ -383,7 +383,9 @@ def parse_ing_pdf(reader: PdfReader, path: Path) -> list[ImportedTransaction]:
             i += 1
         continue
 
-    return add_ing_balance_adjustments(rows, path, ing_closing_balance(lines))
+    # Keep ING parsing strict: return only rows explicitly present in the
+    # statement and let validation fail when totals don't match.
+    return rows
 
 
 def validate_garanti_statement(reader: PdfReader, transactions: list[ImportedTransaction]) -> StatementValidation:
