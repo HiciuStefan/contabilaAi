@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 from contabila_ai.classification import classify_transaction, normalize_entity_name
 from contabila_ai.importing.models import ImportedInvoice, ImportedTransaction
+from contabila_ai.memory.models import BusinessFact
 from contabila_ai.planning.models import QueryExecution, QueryPlan
 
 from .schema import initialize_schema, invoice_row_hash, transaction_row_hash
@@ -379,6 +380,83 @@ class SQLiteTransactionStore:
             )
             connection.commit()
         return int(cursor.lastrowid)
+
+    def add_business_instruction(self, *, workspace_id: int, raw_text: str) -> int:
+        with closing(self.connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO business_instructions (workspace_id, raw_text)
+                VALUES (?, ?)
+                """,
+                (int(workspace_id), raw_text),
+            )
+            connection.commit()
+        return int(cursor.lastrowid)
+
+    def add_business_facts(
+        self,
+        *,
+        workspace_id: int,
+        instruction_id: int,
+        facts: Iterable[BusinessFact],
+    ) -> int:
+        fact_list = list(facts)
+        inserted = 0
+        with closing(self.connect()) as connection:
+            for fact in fact_list:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO business_facts (
+                        workspace_id,
+                        instruction_id,
+                        fact_type,
+                        subject_name,
+                        fact_value,
+                        extra_json,
+                        confidence,
+                        status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(workspace_id),
+                        int(instruction_id),
+                        fact.fact_type,
+                        fact.subject_name,
+                        fact.fact_value,
+                        fact.extra_json,
+                        fact.confidence,
+                        fact.status,
+                    ),
+                )
+                inserted += int(cursor.rowcount)
+            connection.commit()
+        return inserted
+
+    def list_business_facts(self, workspace_id: int) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    bf.id,
+                    bf.workspace_id,
+                    bf.instruction_id,
+                    bf.fact_type,
+                    bf.subject_name,
+                    bf.fact_value,
+                    bf.extra_json,
+                    bf.confidence,
+                    bf.status,
+                    bf.created_at,
+                    bi.raw_text
+                FROM business_facts AS bf
+                LEFT JOIN business_instructions AS bi
+                    ON bi.id = bf.instruction_id
+                WHERE bf.workspace_id = ?
+                ORDER BY bf.created_at DESC, bf.id DESC
+                """,
+                (int(workspace_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def entity_memory_map(self) -> dict[str, dict[str, Any]]:
         with closing(self.connect()) as connection:

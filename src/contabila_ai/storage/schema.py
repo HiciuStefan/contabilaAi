@@ -45,6 +45,33 @@ CREATE TABLE IF NOT EXISTS accounts (
 )
 """
 
+BUSINESS_INSTRUCTIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS business_instructions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    raw_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+)
+"""
+
+BUSINESS_FACTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS business_facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    instruction_id INTEGER,
+    fact_type TEXT NOT NULL,
+    subject_name TEXT NOT NULL,
+    fact_value TEXT NOT NULL,
+    extra_json TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    status TEXT NOT NULL DEFAULT 'accepted',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+    FOREIGN KEY(instruction_id) REFERENCES business_instructions(id) ON DELETE SET NULL
+)
+"""
+
 TRANSACTIONS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,6 +173,8 @@ CREATE TABLE IF NOT EXISTS issued_invoices (
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(WORKSPACES_TABLE_SQL)
     connection.execute(ACCOUNTS_TABLE_SQL)
+    connection.execute(BUSINESS_INSTRUCTIONS_TABLE_SQL)
+    connection.execute(BUSINESS_FACTS_TABLE_SQL)
     connection.execute(IMPORT_BATCHES_TABLE_SQL)
     _ensure_import_batches_table_shape(connection)
     connection.execute(TRANSACTIONS_TABLE_SQL)
@@ -172,6 +201,12 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status, created_at DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_business_instructions_workspace ON business_instructions(workspace_id, created_at DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_business_facts_workspace ON business_facts(workspace_id, fact_type, subject_name)"
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_entity_memory_normalized ON entity_memory(entity_name_normalized)"

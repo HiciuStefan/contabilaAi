@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import unquote_plus, urlparse
 
 from contabila_ai.importing import parse_issued_invoices_path, parse_statement_bundle
+from contabila_ai.memory import BusinessMemoryService
 from contabila_ai.planning import build_query_plan
 from contabila_ai.review import ReviewService
 from contabila_ai.storage.store import SQLiteTransactionStore
@@ -34,6 +35,7 @@ def build_app_services(
     web_dir = root_dir / "web"
     store = SQLiteTransactionStore(db_path)
     review = ReviewService(store)
+    memory = BusinessMemoryService(store)
     workspaces = WorkspaceService(store, review)
     services = {
         "root_dir": root_dir,
@@ -42,6 +44,7 @@ def build_app_services(
         "web_dir": web_dir,
         "store": store,
         "review": review,
+        "memory": memory,
         "workspaces": workspaces,
         "startup_import": None,
     }
@@ -171,6 +174,12 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/categories":
             self._send_json({"categories": self.services["store"].list_analysis_categories()})
             return
+        if parsed.path == "/api/business-memory":
+            workspace_id = self._parse_workspace_id(parsed.query)
+            if workspace_id is None:
+                raise ValueError("workspace_id is required.")
+            self._send_json({"facts": self.services["store"].list_business_facts(workspace_id)})
+            return
         if parsed.path == "/api/category-transactions":
             self._handle_category_transactions(parsed.query)
             return
@@ -224,6 +233,9 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/invoices/upload":
                 self._handle_invoice_upload(payload)
+                return
+            if parsed.path == "/api/business-memory":
+                self._handle_business_memory(payload)
                 return
             if parsed.path == "/api/chat":
                 self._handle_chat(payload)
@@ -448,6 +460,15 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 "categories": self.services["store"].list_analysis_categories(),
             }
         )
+
+    def _handle_business_memory(self, payload: dict[str, Any]) -> None:
+        workspace_id = payload.get("workspace_id")
+        if workspace_id in (None, ""):
+            raise ValueError("workspace_id is required.")
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            raise ValueError("text is required.")
+        self._send_json(self.services["memory"].add_instruction(int(workspace_id), text))
 
     def _handle_confirm(self, payload: dict[str, Any]) -> None:
         transaction_id = payload.get("transaction_id")

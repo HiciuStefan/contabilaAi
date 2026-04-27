@@ -138,6 +138,51 @@ class HttpSmokeTest(unittest.TestCase):
             if data_dir.exists():
                 data_dir.rmdir()
 
+    def test_business_memory_endpoint_stores_facts(self) -> None:
+        data_dir = ROOT / "test_http_data_business_memory"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                request = Request(
+                    f"{base_url}/api/business-memory",
+                    data=json.dumps(
+                        {
+                            "workspace_id": workspace_id,
+                            "text": "Ai Excellence e partener",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(payload["fact_count"], 1)
+            self.assertEqual(payload["facts"][0]["fact_type"], "entity_type")
+            self.assertEqual(payload["facts"][0]["fact_value"], "partener")
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
     def test_parse_single_file_multipart_extracts_uploaded_statement(self) -> None:
         boundary = "----ContabilaAiBoundary"
         body = (
