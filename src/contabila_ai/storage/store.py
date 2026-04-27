@@ -1818,6 +1818,31 @@ class SQLiteTransactionStore:
             import_batch_id=import_batch_id,
             workspace_id=workspace_id,
         )
+        if plan.group_by == "year":
+            sql = f"""
+                SELECT
+                    strftime('%Y', transaction_date) AS group_key,
+                    ROUND(
+                        COALESCE(
+                            SUM(CASE WHEN economic_kind = 'creditare' THEN ABS(amount) ELSE 0 END),
+                            0
+                        ),
+                        2
+                    ) AS creditare_value,
+                    ROUND(
+                        COALESCE(
+                            SUM(CASE WHEN economic_kind = 'recuperare_creditare' THEN ABS(amount) ELSE 0 END),
+                            0
+                        ),
+                        2
+                    ) AS recuperare_value,
+                    COUNT(*) AS transaction_count
+                FROM transactions
+                {where_sql}
+                GROUP BY strftime('%Y', transaction_date)
+                ORDER BY group_key ASC
+            """
+            return sql.strip(), params
         sql = f"""
             SELECT
                 economic_kind AS group_key,

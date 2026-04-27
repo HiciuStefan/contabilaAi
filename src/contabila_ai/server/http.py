@@ -796,6 +796,16 @@ def render_answer(plan: Any, rows: list[dict[str, Any]]) -> str:
     if plan.metric == "creditare_vs_recuperare":
         if not rows:
             return "Nu am gasit tranzactii de creditare sau recuperare creditare in selectia ceruta."
+        if plan.group_by == "year":
+            parts = []
+            for row in rows:
+                creditare = float(row.get("creditare_value", 0) or 0)
+                recuperare = float(row.get("recuperare_value", 0) or 0)
+                remaining = round(creditare - recuperare, 2)
+                parts.append(
+                    f"{row['group_key']}: creditare {creditare}, recuperare {recuperare}, ramas {remaining}"
+                )
+            return "Breakdown anual creditare vs recuperare: " + "; ".join(parts)
         values = {row["group_key"]: row for row in rows}
         creditare = float(values.get("creditare", {}).get("metric_value", 0) or 0)
         recuperare = float(values.get("recuperare_creditare", {}).get("metric_value", 0) or 0)

@@ -480,7 +480,7 @@ class PlannerTest(unittest.TestCase):
                 ]
             )
 
-            plan = build_query_plan("cati bani am creditat in toti anii si cati bani am recuperat")
+            plan = build_query_plan("cati bani am creditat si cati bani am recuperat")
             result = store.execute_plan(plan)
             rows = store.list_matching_transactions_for_plan(plan)
 
@@ -492,6 +492,81 @@ class PlannerTest(unittest.TestCase):
                 ],
             )
             self.assertEqual([row["economic_kind"] for row in rows], ["recuperare_creditare", "creditare"])
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_store_execute_plan_groups_creditare_vs_recovery_by_year(self) -> None:
+        db_path = ROOT / "test_planner_creditare_recovery_yearly.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-01-10",
+                        description="Creditare firma",
+                        amount=1000.0,
+                        currency="RON",
+                        balance=1000.0,
+                        merchant="Asociat",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"c-2025"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-02-10",
+                        description="Recuperare creditare",
+                        amount=-300.0,
+                        currency="RON",
+                        balance=700.0,
+                        merchant="Asociat",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"r-2025"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2026-01-11",
+                        description="Creditare firma",
+                        amount=2000.0,
+                        currency="RON",
+                        balance=2700.0,
+                        merchant="Asociat",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"c-2026"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2026-02-12",
+                        description="Recuperare creditare",
+                        amount=-500.0,
+                        currency="RON",
+                        balance=2200.0,
+                        merchant="Asociat",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"r-2026"}',
+                    ),
+                ]
+            )
+
+            plan = build_query_plan("cati bani am creditat in fiecare an si cati am recuperat")
+            result = store.execute_plan(plan)
+
+            self.assertEqual(
+                result.rows,
+                [
+                    {
+                        "group_key": "2025",
+                        "creditare_value": 1000.0,
+                        "recuperare_value": 300.0,
+                        "transaction_count": 2,
+                    },
+                    {
+                        "group_key": "2026",
+                        "creditare_value": 2000.0,
+                        "recuperare_value": 500.0,
+                        "transaction_count": 2,
+                    },
+                ],
+            )
         finally:
             if db_path.exists():
                 db_path.unlink()
@@ -893,6 +968,20 @@ class PlannerTest(unittest.TestCase):
         )
 
         self.assertIn("mai ai de recuperat 322999.49", answer.lower())
+
+    def test_render_answer_creditare_grouped_by_year(self) -> None:
+        plan = build_query_plan("cati bani am creditat in fiecare an si cati am recuperat")
+
+        answer = render_answer(
+            plan,
+            [
+                {"group_key": "2025", "creditare_value": 1000.0, "recuperare_value": 300.0, "transaction_count": 2},
+                {"group_key": "2026", "creditare_value": 2000.0, "recuperare_value": 500.0, "transaction_count": 2},
+            ],
+        )
+
+        self.assertIn("2025: creditare 1000.0, recuperare 300.0, ramas 700.0", answer.lower())
+        self.assertIn("2026: creditare 2000.0, recuperare 500.0, ramas 1500.0", answer.lower())
 
     def test_render_answer_for_invoice_residual_metric(self) -> None:
         plan = build_query_plan("cat mai am de platit pe facturile primite")
