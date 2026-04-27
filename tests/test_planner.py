@@ -319,6 +319,68 @@ class PlannerTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_store_execute_plan_filters_to_first_year_within_workspace_scope(self) -> None:
+        db_path = ROOT / "test_planner_first_year_workspace.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_alpha = store.create_workspace("Alpha")
+            workspace_beta = store.create_workspace("Beta")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2022-01-05",
+                        description="Incasare Alpha",
+                        amount=1000.0,
+                        currency="RON",
+                        balance=1000.0,
+                        merchant="Client Alpha",
+                        source_file="alpha.csv",
+                        raw_payload='{"id":"alpha-2022"}',
+                    )
+                ],
+                workspace_id=workspace_alpha,
+            )
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2026-01-05",
+                        description="Incasare Beta",
+                        amount=500.0,
+                        currency="RON",
+                        balance=500.0,
+                        merchant="Client Beta",
+                        source_file="beta.csv",
+                        raw_payload='{"id":"beta-2026-income"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2026-01-07",
+                        description="Plata Beta",
+                        amount=-150.0,
+                        currency="RON",
+                        balance=350.0,
+                        merchant="Supplier Beta",
+                        source_file="beta.csv",
+                        raw_payload='{"id":"beta-2026-expense"}',
+                    ),
+                ],
+                workspace_id=workspace_beta,
+            )
+
+            plan = build_query_plan("cat am avut pe primul an profit")
+            result = store.execute_plan_for_import(plan, workspace_id=workspace_beta)
+            rows = store.list_matching_transactions_for_plan(plan, workspace_id=workspace_beta)
+
+            self.assertEqual(
+                result.rows,
+                [{"group_key": None, "metric_value": 350.0, "transaction_count": 2}],
+            )
+            self.assertEqual({row["transaction_date"][:4] for row in rows}, {"2026"})
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
     def test_store_execute_plan_filters_aggregate_question_by_entity_name(self) -> None:
         db_path = ROOT / "test_planner_entity_aggregate.sqlite3"
         if db_path.exists():

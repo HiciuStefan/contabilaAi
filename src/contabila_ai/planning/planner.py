@@ -47,6 +47,7 @@ HALF_YEAR_TOKENS = (
     "semestru",
 )
 YEAR_GROUP_TOKENS = (
+    "in fiecare an",
     "pe ani",
     "toti anii",
     "fiecare an",

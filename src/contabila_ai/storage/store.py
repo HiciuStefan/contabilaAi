@@ -2073,10 +2073,17 @@ class SQLiteTransactionStore:
                     SELECT MIN(CAST(strftime('%Y', first_period.transaction_date) AS INTEGER))
                     FROM transactions AS first_period
                     WHERE (? IS NULL OR first_period.import_batch_id = ?)
+                      AND (
+                          ? IS NULL OR first_period.import_batch_id IN (
+                              SELECT id
+                              FROM import_batches
+                              WHERE workspace_id = ?
+                          )
+                      )
                 )
                 """.strip()
             )
-            params.extend([import_batch_id, import_batch_id])
+            params.extend([import_batch_id, import_batch_id, workspace_id, workspace_id])
 
         if plan.economic_kind:
             clauses.append(f"{table_alias}.economic_kind = ?")
