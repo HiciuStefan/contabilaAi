@@ -13,7 +13,14 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from contabila_ai.importing.parsers import parse_csv, parse_issued_invoices_path, parse_pdf, parse_statement_path  # noqa: E402
+from contabila_ai.importing.models import StatementParseResult, StatementValidation  # noqa: E402
+from contabila_ai.importing.parsers import (  # noqa: E402
+    parse_csv,
+    parse_issued_invoices_path,
+    parse_pdf,
+    parse_statement_bundle,
+    parse_statement_path,
+)
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
@@ -56,7 +63,34 @@ class ImporterTest(unittest.TestCase):
             with (
                 patch("contabila_ai.importing.parsers.parse_csv", return_value=["csv"]) as csv_mock,
                 patch("contabila_ai.importing.parsers.parse_json", return_value=["json"]) as json_mock,
-                patch("contabila_ai.importing.parsers.parse_pdf", return_value=["pdf"]) as pdf_mock,
+                patch(
+                    "contabila_ai.importing.parsers.parse_pdf_bundle",
+                    return_value=StatementParseResult(
+                        transactions=("pdf",),
+                        validation=StatementValidation(
+                            available=False,
+                            passed=False,
+                            parser_name="pdf",
+                            errors=("statement_totals_unavailable",),
+                            declared_transaction_count=None,
+                            parsed_transaction_count=0,
+                            declared_inflow_count=None,
+                            parsed_inflow_count=0,
+                            declared_outflow_count=None,
+                            parsed_outflow_count=0,
+                            declared_total_income=None,
+                            parsed_total_income=0.0,
+                            declared_total_expenses=None,
+                            parsed_total_expenses=0.0,
+                            declared_net_cashflow=None,
+                            parsed_net_cashflow=0.0,
+                            declared_opening_balance=None,
+                            declared_closing_balance=None,
+                            parsed_closing_balance=None,
+                            inferred_transaction_count=0,
+                        ),
+                    ),
+                ) as pdf_mock,
             ):
                 self.assertEqual(parse_statement_path(csv_path), ["csv"])
                 self.assertEqual(parse_statement_path(json_path), ["json"])
@@ -205,6 +239,22 @@ class ImporterTest(unittest.TestCase):
         self.assertEqual(first.merchant, "DEPUNERE NUMERAR")
         self.assertEqual(first.source_file, str(path))
 
+    def test_real_garanti_pdf_validation_matches_statement_totals_and_counts(self) -> None:
+        path = canonical_garanti_pdf_path()
+        if path is None:
+            self.skipTest("Canonical Garanti PDF fixture is missing from Downloads.")
+
+        bundle = parse_statement_bundle(path)
+
+        self.assertTrue(bundle.validation.available)
+        self.assertTrue(bundle.validation.passed)
+        self.assertEqual(bundle.validation.declared_transaction_count, 623)
+        self.assertEqual(bundle.validation.parsed_transaction_count, 623)
+        self.assertAlmostEqual(bundle.validation.declared_total_income, 2225700.95, places=2)
+        self.assertAlmostEqual(bundle.validation.parsed_total_income, 2225700.95, places=2)
+        self.assertAlmostEqual(bundle.validation.declared_total_expenses, 2161702.50, places=2)
+        self.assertAlmostEqual(bundle.validation.parsed_total_expenses, 2161702.50, places=2)
+
     def test_real_ing_pdf_returns_many_transactions(self) -> None:
         path = canonical_ing_pdf_path()
         if path is None:
@@ -224,6 +274,19 @@ class ImporterTest(unittest.TestCase):
         self.assertEqual(first.balance, 190.0)
         self.assertEqual(first.merchant, "Hiciu Stefan")
         self.assertEqual(first.source_file, str(path))
+
+    def test_real_ing_pdf_validation_detects_mismatch(self) -> None:
+        path = canonical_ing_pdf_path()
+        if path is None:
+            self.skipTest("MobExc ING PDF fixture is missing from Date/MobExc.")
+
+        bundle = parse_statement_bundle(path)
+
+        self.assertTrue(bundle.validation.available)
+        self.assertFalse(bundle.validation.passed)
+        self.assertIn("transaction_count_mismatch", bundle.validation.errors)
+        self.assertIn("outflow_count_mismatch", bundle.validation.errors)
+        self.assertIn("contains_inferred_transactions", bundle.validation.errors)
 
     def test_imported_statement_summary_matches_statement_totals(self) -> None:
         path = canonical_garanti_pdf_path()

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.request import Request, urlopen
 
 
@@ -23,6 +24,7 @@ from contabila_ai.server.http import (  # noqa: E402
     import_document_path,
     parse_single_file_multipart,
 )
+from contabila_ai.importing.models import StatementParseResult, StatementValidation  # noqa: E402
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
@@ -186,6 +188,57 @@ class HttpSmokeTest(unittest.TestCase):
                 db_path.unlink()
             if data_dir.exists():
                 data_dir.rmdir()
+
+    def test_import_document_path_rejects_invalid_statement_validation(self) -> None:
+        data_dir = ROOT / "test_http_data_invalid_validation"
+        statement_path = ROOT / "_invalid_statement.json"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            statement_path.write_text("{}", encoding="utf-8")
+            services = build_app_services(data_dir=data_dir)
+            with patch(
+                "contabila_ai.server.http.parse_statement_bundle",
+                return_value=StatementParseResult(
+                    transactions=tuple(),
+                    validation=StatementValidation(
+                        available=True,
+                        passed=False,
+                        parser_name="test",
+                        errors=("income_total_mismatch", "transaction_count_mismatch"),
+                        declared_transaction_count=10,
+                        parsed_transaction_count=9,
+                        declared_inflow_count=2,
+                        parsed_inflow_count=2,
+                        declared_outflow_count=8,
+                        parsed_outflow_count=7,
+                        declared_total_income=100.0,
+                        parsed_total_income=90.0,
+                        declared_total_expenses=50.0,
+                        parsed_total_expenses=50.0,
+                        declared_net_cashflow=50.0,
+                        parsed_net_cashflow=40.0,
+                        declared_opening_balance=0.0,
+                        declared_closing_balance=50.0,
+                        parsed_closing_balance=40.0,
+                        inferred_transaction_count=0,
+                    ),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "Validarea extrasului a esuat"):
+                    import_document_path(services, statement_path)
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+            if statement_path.exists():
+                statement_path.unlink()
 
     def test_http_services_start_without_forced_startup_import(self) -> None:
         data_dir = ROOT / "test_http_data_empty_start"

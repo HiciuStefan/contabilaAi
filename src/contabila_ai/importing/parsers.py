@@ -8,7 +8,7 @@ from typing import Iterable
 import pandas as pd
 from pypdf import PdfReader
 
-from .models import ImportedInvoice, ImportedTransaction
+from .models import ImportedInvoice, ImportedTransaction, StatementParseResult, StatementValidation
 from .normalize import merchant_from_description, parse_amount, parse_date, sign_amount
 
 
@@ -32,14 +32,26 @@ def detect_currency(text: str) -> str:
 
 
 def parse_statement_path(path: str | Path) -> list[ImportedTransaction]:
+    return list(parse_statement_bundle(path).transactions)
+
+
+def parse_statement_bundle(path: str | Path) -> StatementParseResult:
     file_path = Path(path)
     suffix = file_path.suffix.lower()
     if suffix == ".csv":
-        return parse_csv(file_path)
+        transactions = parse_csv(file_path)
+        return StatementParseResult(
+            transactions=tuple(transactions),
+            validation=_validation_unavailable("csv"),
+        )
     if suffix == ".json":
-        return parse_json(file_path)
+        transactions = parse_json(file_path)
+        return StatementParseResult(
+            transactions=tuple(transactions),
+            validation=_validation_unavailable("json"),
+        )
     if suffix == ".pdf":
-        return parse_pdf(file_path)
+        return parse_pdf_bundle(file_path)
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
 
@@ -151,12 +163,20 @@ def invoice_pdf_customer_name(lines: list[str]) -> str:
 
 
 def parse_pdf(path: Path) -> list[ImportedTransaction]:
+    return list(parse_pdf_bundle(path).transactions)
+
+
+def parse_pdf_bundle(path: Path) -> StatementParseResult:
     reader = PdfReader(str(path))
     first_page_text = reader.pages[0].extract_text() or ""
     if is_garanti_statement(first_page_text):
-        return parse_garanti_pdf(reader, path)
+        transactions = parse_garanti_pdf(reader, path)
+        validation = validate_garanti_statement(reader, transactions)
+        return StatementParseResult(transactions=tuple(transactions), validation=validation)
     if is_ing_statement(first_page_text):
-        return parse_ing_pdf(reader, path)
+        transactions = parse_ing_pdf(reader, path)
+        validation = validate_ing_statement(reader, transactions)
+        return StatementParseResult(transactions=tuple(transactions), validation=validation)
 
     rows: list[ImportedTransaction] = []
     currency = "RON"
@@ -192,7 +212,10 @@ def parse_pdf(path: Path) -> list[ImportedTransaction]:
                     raw_payload=json.dumps({"line": cleaned}, ensure_ascii=False),
                 )
             )
-    return rows
+    return StatementParseResult(
+        transactions=tuple(rows),
+        validation=_validation_unavailable("generic_pdf"),
+    )
 
 
 def add_ing_balance_adjustments(
@@ -363,12 +386,78 @@ def parse_ing_pdf(reader: PdfReader, path: Path) -> list[ImportedTransaction]:
     return add_ing_balance_adjustments(rows, path, ing_closing_balance(lines))
 
 
+def validate_garanti_statement(reader: PdfReader, transactions: list[ImportedTransaction]) -> StatementValidation:
+    lines = _reader_lines(reader)
+    opening_balance = _find_amount_in_lines(lines, "Sold inițial :")
+    closing_balance = _find_amount_in_lines(lines, "Soldul final :")
+    inflow_summary = _find_count_amount_pair(lines, "Total intrări :")
+    outflow_summary = _find_count_amount_pair(lines, "Total ieșiri :")
+    return _build_validation(
+        parser_name="garanti_pdf",
+        transactions=transactions,
+        declared_inflow_count=inflow_summary[0] if inflow_summary else None,
+        declared_total_income=inflow_summary[1] if inflow_summary else None,
+        declared_outflow_count=outflow_summary[0] if outflow_summary else None,
+        declared_total_expenses=outflow_summary[1] if outflow_summary else None,
+        declared_opening_balance=opening_balance,
+        declared_closing_balance=closing_balance,
+    )
+
+
+def validate_ing_statement(reader: PdfReader, transactions: list[ImportedTransaction]) -> StatementValidation:
+    lines = _reader_lines(reader)
+    opening_balance = None
+    closing_balance = None
+    inflow_summary = None
+    outflow_summary = None
+    for line in lines:
+        if opening_balance is None:
+            opening_balance = _match_ing_opening_balance(line)
+        if closing_balance is None:
+            closing_balance = _match_ing_closing_balance(line)
+        if inflow_summary is None:
+            inflow_summary = _match_ing_total_line(line, "Total Credits:")
+        if outflow_summary is None:
+            outflow_summary = _match_ing_total_line(line, "Total Debits:")
+    return _build_validation(
+        parser_name="ing_pdf",
+        transactions=transactions,
+        declared_inflow_count=inflow_summary[0] if inflow_summary else None,
+        declared_total_income=inflow_summary[1] if inflow_summary else None,
+        declared_outflow_count=outflow_summary[0] if outflow_summary else None,
+        declared_total_expenses=outflow_summary[1] if outflow_summary else None,
+        declared_opening_balance=opening_balance,
+        declared_closing_balance=closing_balance,
+    )
+
+
 def ing_closing_balance(lines: list[str]) -> float | None:
     for line in lines:
         match = re.match(r"^\d{2}\.\d{2}\.\d{4}\s+Closing Balance:\s+(?P<balance>-?\d[\d,]*\.\d{2})$", line)
         if match:
             return parse_amount(match.group("balance"))
     return None
+
+
+def _match_ing_opening_balance(line: str) -> float | None:
+    match = re.match(r"^\d{2}\.\d{2}\.\d{4}\s+Opening Balance:\s+(?P<balance>-?\d[\d,]*\.\d{2})$", line)
+    return parse_amount(match.group("balance")) if match else None
+
+
+def _match_ing_closing_balance(line: str) -> float | None:
+    match = re.match(r"^\d{2}\.\d{2}\.\d{4}\s+Closing Balance:\s+(?P<balance>-?\d[\d,]*\.\d{2})$", line)
+    return parse_amount(match.group("balance")) if match else None
+
+
+def _match_ing_total_line(line: str, prefix: str) -> tuple[int, float] | None:
+    pattern = rf"^{re.escape(prefix)}\s+(?P<count>\d+)\s+(?P<amount>-?[\d,\s]+\.\d{{2}})$"
+    match = re.match(pattern, line)
+    if not match:
+        return None
+    amount = parse_amount(match.group("amount"))
+    if amount is None:
+        return None
+    return int(match.group("count")), abs(float(amount))
 
 
 def should_skip_ing_line(line: str) -> bool:
@@ -668,3 +757,144 @@ def first_match(columns: dict[str, str], candidates: tuple[str, ...]) -> str | N
         if candidate in columns:
             return columns[candidate]
     return None
+
+
+def _validation_unavailable(parser_name: str) -> StatementValidation:
+    return StatementValidation(
+        available=False,
+        passed=False,
+        parser_name=parser_name,
+        errors=("statement_totals_unavailable",),
+        declared_transaction_count=None,
+        parsed_transaction_count=0,
+        declared_inflow_count=None,
+        parsed_inflow_count=0,
+        declared_outflow_count=None,
+        parsed_outflow_count=0,
+        declared_total_income=None,
+        parsed_total_income=0.0,
+        declared_total_expenses=None,
+        parsed_total_expenses=0.0,
+        declared_net_cashflow=None,
+        parsed_net_cashflow=0.0,
+        declared_opening_balance=None,
+        declared_closing_balance=None,
+        parsed_closing_balance=None,
+        inferred_transaction_count=0,
+    )
+
+
+def _reader_lines(reader: PdfReader) -> list[str]:
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    return [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+
+
+def _find_amount_in_lines(lines: list[str], prefix: str) -> float | None:
+    for line in lines:
+        if line.startswith(prefix):
+            match = re.search(r"(-?[\d,.]+)\s+[A-Z]{3}$", line)
+            if match:
+                return parse_amount(match.group(1))
+    return None
+
+
+def _find_count_amount_pair(lines: list[str], prefix: str) -> tuple[int, float] | None:
+    for line in lines:
+        if not line.startswith(prefix):
+            continue
+        match = re.search(rf"^{re.escape(prefix)}\s*(?P<count>\d+)\s+(?P<amount>-?[\d,.]+)\s+[A-Z]{{3}}$", line)
+        if not match:
+            continue
+        amount = parse_amount(match.group("amount"))
+        if amount is None:
+            continue
+        return int(match.group("count")), abs(float(amount))
+    return None
+
+
+def _build_validation(
+    *,
+    parser_name: str,
+    transactions: list[ImportedTransaction],
+    declared_inflow_count: int | None,
+    declared_total_income: float | None,
+    declared_outflow_count: int | None,
+    declared_total_expenses: float | None,
+    declared_opening_balance: float | None,
+    declared_closing_balance: float | None,
+) -> StatementValidation:
+    parsed_transaction_count = len(transactions)
+    parsed_inflow_count = sum(1 for row in transactions if row.amount > 0)
+    parsed_outflow_count = sum(1 for row in transactions if row.amount < 0)
+    parsed_total_income = round(sum(row.amount for row in transactions if row.amount > 0), 2)
+    parsed_total_expenses = round(sum(-row.amount for row in transactions if row.amount < 0), 2)
+    parsed_net_cashflow = round(sum(row.amount for row in transactions), 2)
+    parsed_closing_balance = transactions[-1].balance if transactions and transactions[-1].balance is not None else None
+    inferred_transaction_count = sum(
+        1
+        for row in transactions
+        if '"type": "ing_balance_adjustment"' in row.raw_payload or '"type": "ing_closing_balance_adjustment"' in row.raw_payload
+    )
+    declared_transaction_count = None
+    if declared_inflow_count is not None and declared_outflow_count is not None:
+        declared_transaction_count = declared_inflow_count + declared_outflow_count
+
+    errors: list[str] = []
+    available = any(
+        value is not None
+        for value in (
+            declared_inflow_count,
+            declared_outflow_count,
+            declared_total_income,
+            declared_total_expenses,
+            declared_closing_balance,
+        )
+    )
+    if not available:
+        errors.append("statement_totals_unavailable")
+    if declared_transaction_count is not None and declared_transaction_count != parsed_transaction_count:
+        errors.append("transaction_count_mismatch")
+    if declared_inflow_count is not None and declared_inflow_count != parsed_inflow_count:
+        errors.append("inflow_count_mismatch")
+    if declared_outflow_count is not None and declared_outflow_count != parsed_outflow_count:
+        errors.append("outflow_count_mismatch")
+    if declared_total_income is not None and round(declared_total_income, 2) != parsed_total_income:
+        errors.append("income_total_mismatch")
+    if declared_total_expenses is not None and round(declared_total_expenses, 2) != parsed_total_expenses:
+        errors.append("expense_total_mismatch")
+    declared_net_cashflow = None
+    if declared_total_income is not None and declared_total_expenses is not None:
+        declared_net_cashflow = round(declared_total_income - declared_total_expenses, 2)
+        if declared_net_cashflow != parsed_net_cashflow:
+            errors.append("net_cashflow_mismatch")
+    if declared_opening_balance is not None and declared_closing_balance is not None and declared_net_cashflow is not None:
+        expected_closing_balance = round(declared_opening_balance + declared_net_cashflow, 2)
+        if round(declared_closing_balance, 2) != expected_closing_balance:
+            errors.append("declared_balance_summary_inconsistent")
+    if declared_closing_balance is not None and parsed_closing_balance is not None:
+        if round(declared_closing_balance, 2) != round(parsed_closing_balance, 2):
+            errors.append("closing_balance_mismatch")
+    if inferred_transaction_count:
+        errors.append("contains_inferred_transactions")
+    return StatementValidation(
+        available=available,
+        passed=available and not errors,
+        parser_name=parser_name,
+        errors=tuple(errors),
+        declared_transaction_count=declared_transaction_count,
+        parsed_transaction_count=parsed_transaction_count,
+        declared_inflow_count=declared_inflow_count,
+        parsed_inflow_count=parsed_inflow_count,
+        declared_outflow_count=declared_outflow_count,
+        parsed_outflow_count=parsed_outflow_count,
+        declared_total_income=declared_total_income,
+        parsed_total_income=parsed_total_income,
+        declared_total_expenses=declared_total_expenses,
+        parsed_total_expenses=parsed_total_expenses,
+        declared_net_cashflow=declared_net_cashflow,
+        parsed_net_cashflow=parsed_net_cashflow,
+        declared_opening_balance=declared_opening_balance,
+        declared_closing_balance=declared_closing_balance,
+        parsed_closing_balance=parsed_closing_balance,
+        inferred_transaction_count=inferred_transaction_count,
+    )

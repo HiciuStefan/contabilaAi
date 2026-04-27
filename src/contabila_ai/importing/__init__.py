@@ -1,12 +1,21 @@
 """Importing helpers for ContabilaAi."""
 
-from .models import ImportedInvoice, ImportedTransaction
+from .models import ImportedInvoice, ImportedTransaction, StatementParseResult, StatementValidation
 from .normalize import merchant_from_description, normalize_whitespace, parse_amount, parse_date, sign_amount
-from .parsers import parse_csv, parse_issued_invoices_path, parse_json, parse_pdf, parse_statement_path
+from .parsers import (
+    parse_csv,
+    parse_issued_invoices_path,
+    parse_json,
+    parse_pdf,
+    parse_statement_bundle,
+    parse_statement_path,
+)
 
 __all__ = [
     "ImportedInvoice",
     "ImportedTransaction",
+    "StatementParseResult",
+    "StatementValidation",
     "merchant_from_description",
     "normalize_whitespace",
     "parse_amount",
@@ -15,6 +24,7 @@ __all__ = [
     "parse_date",
     "parse_json",
     "parse_pdf",
+    "parse_statement_bundle",
     "parse_statement_path",
     "sign_amount",
 ]

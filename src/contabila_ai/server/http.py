@@ -10,7 +10,7 @@ import re
 from typing import Any
 from urllib.parse import unquote_plus, urlparse
 
-from contabila_ai.importing import parse_issued_invoices_path, parse_statement_path
+from contabila_ai.importing import parse_issued_invoices_path, parse_statement_bundle
 from contabila_ai.planning import build_query_plan
 from contabila_ai.review import ReviewService
 from contabila_ai.storage.store import SQLiteTransactionStore
@@ -49,11 +49,13 @@ def build_app_services(
         source_path = Path(initial_statement_path).expanduser()
         if not source_path.exists():
             raise FileNotFoundError(f"Missing statement file: {source_path}")
-        transactions = parse_statement_path(source_path)
+        statement_bundle = parse_statement_bundle(source_path)
+        _raise_on_failed_statement_validation(statement_bundle.validation)
         services["startup_import"] = {
             "path": str(source_path),
-            "imported_count": len(transactions),
-            "result": store.insert_many(transactions),
+            "imported_count": len(statement_bundle.transactions),
+            "result": store.insert_many(statement_bundle.transactions),
+            "validation": _serialize_statement_validation(statement_bundle.validation),
         }
     return services
 
@@ -99,16 +101,18 @@ def import_document_path(
                 "invoice_summary": services["store"].issued_invoice_summary(),
             }
 
-    transactions = parse_statement_path(source_path)
-    result = services["store"].insert_many(transactions, workspace_id=workspace_id)
+    statement_bundle = parse_statement_bundle(source_path)
+    _raise_on_failed_statement_validation(statement_bundle.validation)
+    result = services["store"].insert_many(statement_bundle.transactions, workspace_id=workspace_id)
     return {
         "document_type": "statement",
         "result": result,
-        "imported_count": len(transactions),
+        "imported_count": len(statement_bundle.transactions),
         "summary": services["store"].summary(import_batch_id=result["import_batch_id"]),
         "imports": services["store"].list_import_batches(workspace_id=workspace_id),
         "active_import_id": result["import_batch_id"],
         "workspace_id": workspace_id,
+        "validation": _serialize_statement_validation(statement_bundle.validation),
     }
 
 
@@ -717,4 +721,42 @@ def render_answer(plan: Any, rows: list[dict[str, Any]]) -> str:
         "Calcul exact din liniile extrasului bancar. "
         f"Rezultatul pentru intrebarea ta este {metric_value} "
         f"(din {transaction_count} tranzactii)."
+    )
+
+
+def _serialize_statement_validation(validation: Any) -> dict[str, Any]:
+    return {
+        "available": bool(validation.available),
+        "passed": bool(validation.passed),
+        "parser_name": validation.parser_name,
+        "errors": list(validation.errors),
+        "declared_transaction_count": validation.declared_transaction_count,
+        "parsed_transaction_count": validation.parsed_transaction_count,
+        "declared_inflow_count": validation.declared_inflow_count,
+        "parsed_inflow_count": validation.parsed_inflow_count,
+        "declared_outflow_count": validation.declared_outflow_count,
+        "parsed_outflow_count": validation.parsed_outflow_count,
+        "declared_total_income": validation.declared_total_income,
+        "parsed_total_income": validation.parsed_total_income,
+        "declared_total_expenses": validation.declared_total_expenses,
+        "parsed_total_expenses": validation.parsed_total_expenses,
+        "declared_net_cashflow": validation.declared_net_cashflow,
+        "parsed_net_cashflow": validation.parsed_net_cashflow,
+        "declared_opening_balance": validation.declared_opening_balance,
+        "declared_closing_balance": validation.declared_closing_balance,
+        "parsed_closing_balance": validation.parsed_closing_balance,
+        "inferred_transaction_count": validation.inferred_transaction_count,
+    }
+
+
+def _raise_on_failed_statement_validation(validation: Any) -> None:
+    if not validation.available:
+        return
+    if validation.passed:
+        return
+    parser_name = getattr(validation, "parser_name", "statement")
+    errors = ", ".join(getattr(validation, "errors", ()) or ("validation_failed",))
+    raise ValueError(
+        f"Validarea extrasului a esuat pentru {parser_name}: {errors}. "
+        "Importul a fost oprit ca sa nu folosim valori citite gresit sau inferate."
     )
