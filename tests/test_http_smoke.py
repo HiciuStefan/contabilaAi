@@ -146,6 +146,68 @@ class HttpSmokeTest(unittest.TestCase):
             if data_dir.exists():
                 data_dir.rmdir()
 
+    def test_chat_returns_clarify_without_query_rows_for_ambiguous_question(self) -> None:
+        data_dir = ROOT / "test_http_data_chat_clarify"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-06-01",
+                        description="Incasare proiect",
+                        amount=100.0,
+                        currency="RON",
+                        balance=100.0,
+                        merchant="AI Excellence SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"clarify-1"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                request = Request(
+                    f"{base_url}/api/chat",
+                    data=json.dumps(
+                        {
+                            "workspace_id": workspace_id,
+                            "question": "care e situatia lui ai excellence",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(payload["plan"]["support_level"], "clarify")
+            self.assertEqual(payload["rows"], [])
+            self.assertEqual(payload["transaction_rows"], [])
+            self.assertIn("nu sunt sigur", payload["answer"].lower())
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
     def test_business_memory_endpoint_stores_facts(self) -> None:
         data_dir = ROOT / "test_http_data_business_memory"
         if data_dir.exists():

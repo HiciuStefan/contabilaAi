@@ -429,6 +429,35 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             )
             return
         plan = build_query_plan(question)
+        if plan.support_level in {"clarify", "unsupported"}:
+            self._send_json(
+                {
+                    "answer": render_answer(plan, []),
+                    "import_batch_id": resolved_import_batch_id,
+                    "workspace_id": resolved_workspace_id,
+                    "plan": {
+                        "mode": plan.mode,
+                        "metric": plan.metric,
+                        "metric_label": plan.metric_label,
+                        "support_level": plan.support_level,
+                        "group_by": plan.group_by,
+                        "years": plan.years,
+                        "direction": plan.direction,
+                        "economic_kind": plan.economic_kind,
+                        "analysis_category": plan.analysis_category,
+                        "entity_name": plan.entity_name,
+                        "project_name": plan.project_name,
+                        "creditare_focus": getattr(plan, "creditare_focus", None),
+                        "include_creditare_balance": getattr(plan, "include_creditare_balance", False),
+                    },
+                    "rows": [],
+                    "transaction_rows": [],
+                    "review_counts": self.services["review"].severity_counts(workspace_id=resolved_workspace_id)
+                    if resolved_workspace_id is not None
+                    else None,
+                }
+            )
+            return
         execution = store.execute_plan_for_import(
             plan,
             import_batch_id=resolved_import_batch_id,
