@@ -583,7 +583,8 @@ The major gaps between the current implementation and the intended full product 
 
 - project support exists in planner and business facts, but not yet as a full first-class editing UI
 - business memory parsing is still deterministic and intentionally narrow
-- invoice matching is phase 1 only and still needs installment and many-to-many support
+- invoice matching now supports one-to-one, installments, and one-payment-to-multiple-invoices,
+  but still needs deeper many-to-many balancing heuristics across longer payment timelines
 - change review is implemented for category proposals, but not yet for the full field matrix
 - onboarding exists as a shell and routing model, but still needs richer step-specific UI
 - the invoice hub and matching need deeper analytics and operator tooling
