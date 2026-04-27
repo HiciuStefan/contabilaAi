@@ -10,6 +10,7 @@ import re
 from typing import Any
 from urllib.parse import unquote_plus, urlparse
 
+from contabila_ai.change_review import ChangeReviewService
 from contabila_ai.importing import import_invoice_documents, parse_issued_invoices_path, parse_statement_bundle
 from contabila_ai.matching import MatchingService
 from contabila_ai.memory import BusinessMemoryService
@@ -38,6 +39,7 @@ def build_app_services(
     review = ReviewService(store)
     memory = BusinessMemoryService(store)
     matching = MatchingService(store)
+    change_review = ChangeReviewService(store)
     workspaces = WorkspaceService(store, review)
     services = {
         "root_dir": root_dir,
@@ -48,6 +50,7 @@ def build_app_services(
         "review": review,
         "memory": memory,
         "matching": matching,
+        "change_review": change_review,
         "workspaces": workspaces,
         "startup_import": None,
     }
@@ -204,6 +207,12 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if parsed.path == "/api/change-review":
+            workspace_id = self._parse_workspace_id(parsed.query)
+            if workspace_id is None:
+                raise ValueError("workspace_id is required.")
+            self._send_json({"items": self.services["store"].list_change_review_items(workspace_id)})
+            return
         if parsed.path == "/api/business-memory":
             workspace_id = self._parse_workspace_id(parsed.query)
             if workspace_id is None:
@@ -269,6 +278,9 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/chat":
                 self._handle_chat(payload)
+                return
+            if parsed.path == "/api/change-review/decision":
+                self._handle_change_review_decision(payload)
                 return
             if parsed.path == "/api/review/category":
                 self._handle_apply_category(payload)
@@ -377,10 +389,12 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             source_path=source_path,
         )
         matches = self.services["matching"].match_workspace(workspace_id=int(workspace_id))
+        change_items = self.services["change_review"].refresh_for_workspace(workspace_id=int(workspace_id))
         self._send_json(
             {
                 **result,
                 "matches": matches,
+                "change_review_items": change_items,
                 "invoice_summary": self.services["store"].issued_invoice_summary(),
                 "workspace_id": int(workspace_id),
                 "role": role,
@@ -528,6 +542,15 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 ),
             }
         )
+
+    def _handle_change_review_decision(self, payload: dict[str, Any]) -> None:
+        item_id = payload.get("item_id")
+        decision = str(payload.get("decision") or "").strip()
+        if item_id is None:
+            raise ValueError("item_id is required.")
+        if not decision:
+            raise ValueError("decision is required.")
+        self._send_json(self.services["change_review"].apply_decision(item_id=int(item_id), decision=decision))
 
     def _handle_reset(self) -> None:
         self.services["store"].reset_all_data()

@@ -839,6 +839,206 @@ class SQLiteTransactionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def fetch_workspace_invoice_by_id(self, invoice_id: int) -> dict[str, Any] | None:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    import_batch_id,
+                    role,
+                    invoice_number,
+                    issue_date,
+                    counterparty_name,
+                    net_amount,
+                    vat_amount,
+                    total_amount,
+                    currency,
+                    status,
+                    source_file,
+                    raw_payload,
+                    created_at
+                FROM invoices
+                WHERE id = ?
+                """,
+                (int(invoice_id),),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def fetch_transaction_by_id(self, transaction_id: int) -> dict[str, Any] | None:
+        rows = self.fetch_transactions_by_ids([transaction_id])
+        return rows[0] if rows else None
+
+    def list_workspace_transactions_with_categories(self, workspace_id: int) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    t.id,
+                    t.merchant,
+                    COALESCE(GROUP_CONCAT(ac.name, ','), '') AS category_names
+                FROM transactions AS t
+                INNER JOIN import_batches AS ib
+                    ON ib.id = t.import_batch_id
+                LEFT JOIN transaction_category_links AS tcl
+                    ON tcl.transaction_id = t.id
+                LEFT JOIN analysis_categories AS ac
+                    ON ac.id = tcl.category_id
+                WHERE ib.workspace_id = ?
+                GROUP BY t.id, t.merchant
+                ORDER BY t.id ASC
+                """,
+                (int(workspace_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_change_review_item(
+        self,
+        *,
+        workspace_id: int,
+        transaction_id: int | None,
+        field_name: str,
+        old_value: str,
+        new_value: str,
+        reason: str,
+        confidence: float,
+    ) -> dict[str, Any]:
+        with closing(self.connect()) as connection:
+            existing = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    transaction_id,
+                    field_name,
+                    old_value,
+                    new_value,
+                    reason,
+                    confidence,
+                    status,
+                    created_at
+                FROM change_review_items
+                WHERE workspace_id = ?
+                  AND transaction_id IS ?
+                  AND field_name = ?
+                  AND COALESCE(new_value, '') = COALESCE(?, '')
+                  AND status = 'pending'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (
+                    int(workspace_id),
+                    None if transaction_id is None else int(transaction_id),
+                    field_name,
+                    new_value,
+                ),
+            ).fetchone()
+            if existing is not None:
+                return dict(existing)
+            cursor = connection.execute(
+                """
+                INSERT INTO change_review_items (
+                    workspace_id,
+                    transaction_id,
+                    field_name,
+                    old_value,
+                    new_value,
+                    reason,
+                    confidence,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                """,
+                (
+                    int(workspace_id),
+                    None if transaction_id is None else int(transaction_id),
+                    field_name,
+                    old_value,
+                    new_value,
+                    reason,
+                    float(confidence),
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    transaction_id,
+                    field_name,
+                    old_value,
+                    new_value,
+                    reason,
+                    confidence,
+                    status,
+                    created_at
+                FROM change_review_items
+                WHERE id = ?
+                """,
+                (int(cursor.lastrowid),),
+            ).fetchone()
+            connection.commit()
+        return dict(row)
+
+    def list_change_review_items(self, workspace_id: int) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    transaction_id,
+                    field_name,
+                    old_value,
+                    new_value,
+                    reason,
+                    confidence,
+                    status,
+                    created_at
+                FROM change_review_items
+                WHERE workspace_id = ?
+                ORDER BY status ASC, id DESC
+                """,
+                (int(workspace_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_change_review_item(self, item_id: int) -> dict[str, Any]:
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    workspace_id,
+                    transaction_id,
+                    field_name,
+                    old_value,
+                    new_value,
+                    reason,
+                    confidence,
+                    status,
+                    created_at
+                FROM change_review_items
+                WHERE id = ?
+                """,
+                (int(item_id),),
+            ).fetchone()
+        if row is None:
+            raise ValueError("Change review item not found.")
+        return dict(row)
+
+    def set_change_review_status(self, item_id: int, status: str) -> None:
+        with closing(self.connect()) as connection:
+            connection.execute(
+                """
+                UPDATE change_review_items
+                SET status = ?
+                WHERE id = ?
+                """,
+                (status, int(item_id)),
+            )
+            connection.commit()
+
     def list_review_candidates(
         self,
         *,
@@ -1078,6 +1278,7 @@ class SQLiteTransactionStore:
 
     def reset_all_data(self) -> None:
         with closing(self.connect()) as connection:
+            connection.execute("DELETE FROM change_review_items")
             connection.execute("DELETE FROM invoice_matches")
             connection.execute("DELETE FROM invoices")
             connection.execute("DELETE FROM transaction_category_links")

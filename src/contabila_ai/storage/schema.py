@@ -212,6 +212,23 @@ CREATE TABLE IF NOT EXISTS invoice_matches (
 )
 """
 
+CHANGE_REVIEW_ITEMS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS change_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    transaction_id INTEGER,
+    field_name TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    reason TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+    FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+)
+"""
+
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(WORKSPACES_TABLE_SQL)
@@ -230,6 +247,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(ISSUED_INVOICES_TABLE_SQL)
     connection.execute(INVOICES_TABLE_SQL)
     connection.execute(INVOICE_MATCHES_TABLE_SQL)
+    connection.execute(CHANGE_REVIEW_ITEMS_TABLE_SQL)
     _ensure_transaction_category_links_shape(connection)
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_transactions_transaction_date ON transactions(transaction_date)"
@@ -288,6 +306,12 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_invoice_matches_invoice ON invoice_matches(invoice_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_change_review_workspace ON change_review_items(workspace_id, status, created_at DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_change_review_transaction ON change_review_items(transaction_id)"
     )
 
 

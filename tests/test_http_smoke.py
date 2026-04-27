@@ -340,6 +340,75 @@ class HttpSmokeTest(unittest.TestCase):
             if invoice_path.exists():
                 invoice_path.unlink()
 
+    def test_change_review_endpoints_list_and_apply_decision(self) -> None:
+        data_dir = ROOT / "test_http_data_change_review"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-10",
+                        description="Materiale casa noi",
+                        amount=-450.0,
+                        currency="RON",
+                        balance=4100.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"http-change-review"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            transaction_id = services["store"].list_transactions(limit=5)[0]["id"]
+            item = services["store"].create_change_review_item(
+                workspace_id=workspace_id,
+                transaction_id=transaction_id,
+                field_name="analysis_category",
+                old_value="",
+                new_value="casa",
+                reason="same counterparty category profile",
+                confidence=0.82,
+            )
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                with urlopen(f"{base_url}/api/change-review?workspace_id={workspace_id}", timeout=5) as response:
+                    list_payload = json.loads(response.read().decode("utf-8"))
+
+                decision_request = Request(
+                    f"{base_url}/api/change-review/decision",
+                    data=json.dumps({"item_id": item["id"], "decision": "accept"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(decision_request, timeout=5) as response:
+                    decision_payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(len(list_payload["items"]), 1)
+            self.assertEqual(list_payload["items"][0]["new_value"], "casa")
+            self.assertEqual(decision_payload["decision"], "accept")
+            self.assertEqual(decision_payload["item"]["status"], "accept")
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
     def test_parse_single_file_multipart_extracts_uploaded_statement(self) -> None:
         boundary = "----ContabilaAiBoundary"
         body = (
