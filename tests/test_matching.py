@@ -134,6 +134,77 @@ class MatchingServiceTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_matching_service_supports_invoice_paid_in_multiple_installments(self) -> None:
+        db_path = ROOT / "test_matching_installments.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-03-15",
+                        description="Plata partiala factura Casa Decor",
+                        amount=-500.0,
+                        currency="RON",
+                        balance=3200.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"tx-500"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-03-20",
+                        description="Plata diferenta factura Casa Decor",
+                        amount=-250.0,
+                        currency="RON",
+                        balance=2950.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"tx-250"}',
+                    ),
+                ],
+                workspace_id=workspace_id,
+            )
+            import_batch_id = store.create_document_import_batch(
+                source_path=ROOT / "_received_installments.json",
+                workspace_id=workspace_id,
+                source_type="received_invoice",
+            )
+            store.insert_invoices(
+                workspace_id=workspace_id,
+                import_batch_id=import_batch_id,
+                role="received",
+                invoices=[
+                    ImportedInvoice(
+                        invoice_number="R-0750",
+                        issue_date="2025-03-10",
+                        customer_name="Casa Decor SRL",
+                        net_amount=630.25,
+                        vat_amount=119.75,
+                        total_amount=750.0,
+                        currency="RON",
+                        status="issued",
+                        source_file="received.json",
+                        raw_payload='{"invoice":"R-0750"}',
+                    )
+                ],
+            )
+
+            service = MatchingService(store)
+            proposals = service.match_workspace(workspace_id=workspace_id)
+
+            self.assertEqual(len(proposals), 2)
+            self.assertEqual(proposals[0]["match_kind"], "partial_payment")
+            self.assertEqual(proposals[0]["matched_amount"], 500.0)
+            self.assertEqual(proposals[0]["residual_amount"], 250.0)
+            self.assertEqual(proposals[1]["match_kind"], "installment_payment")
+            self.assertEqual(proposals[1]["matched_amount"], 250.0)
+            self.assertEqual(proposals[1]["residual_amount"], 0.0)
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

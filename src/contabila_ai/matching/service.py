@@ -31,11 +31,11 @@ class MatchingService:
                 reasoning=str(candidate["reasoning"]),
             )
             proposals.append(created)
-            available_invoices = [
-                invoice
-                for invoice in available_invoices
-                if int(invoice["id"]) != int(candidate["invoice"]["id"])
-            ]
+            available_invoices = self._consume_invoice_amount(
+                available_invoices=available_invoices,
+                invoice_id=int(candidate["invoice"]["id"]),
+                consumed_amount=float(candidate["matched_amount"]),
+            )
         return proposals
 
     def _pick_best_invoice_candidate(
@@ -50,21 +50,23 @@ class MatchingService:
         best: dict[str, Any] | None = None
 
         for invoice in invoices:
-            if str(invoice.get("role") or "") != "received":
-                continue
             if str(invoice.get("currency") or "") != tx_currency:
                 continue
             invoice_name = normalize_entity_name(invoice.get("counterparty_name"))
             if tx_name and invoice_name and tx_name != invoice_name:
                 continue
             invoice_total = float(invoice.get("total_amount") or 0)
-            if invoice_total <= 0:
+            invoice_remaining = float(invoice.get("remaining_amount") or invoice_total)
+            already_matched = round(invoice_total - invoice_remaining, 2)
+            if invoice_total <= 0 or invoice_remaining <= 0:
+                continue
+            if tx_amount - invoice_remaining > 0.01:
                 continue
             invoice_date = self._parse_date(invoice.get("issue_date"))
             if tx_date and invoice_date and abs((tx_date - invoice_date).days) > 45:
                 continue
 
-            if abs(tx_amount - invoice_total) < 0.01:
+            if abs(tx_amount - invoice_total) < 0.01 and already_matched < 0.01:
                 candidate = {
                     "invoice": invoice,
                     "match_kind": "one_to_one",
@@ -73,13 +75,22 @@ class MatchingService:
                     "confidence": 0.98,
                     "reasoning": "same counterparty, currency, and exact total amount",
                 }
-            elif tx_amount < invoice_total and tx_amount >= invoice_total * 0.5:
+            elif abs(tx_amount - invoice_remaining) < 0.01 and already_matched >= 0.01:
                 candidate = {
                     "invoice": invoice,
-                    "match_kind": "partial_payment",
+                    "match_kind": "installment_payment",
                     "matched_amount": tx_amount,
-                    "residual_amount": round(invoice_total - tx_amount, 2),
-                    "confidence": 0.86,
+                    "residual_amount": 0.0,
+                    "confidence": 0.92,
+                    "reasoning": "same counterparty and currency, with final installment covering remaining invoice amount",
+                }
+            elif tx_amount < invoice_remaining:
+                candidate = {
+                    "invoice": invoice,
+                    "match_kind": "installment_payment" if already_matched >= 0.01 else "partial_payment",
+                    "matched_amount": tx_amount,
+                    "residual_amount": round(invoice_remaining - tx_amount, 2),
+                    "confidence": 0.88 if already_matched >= 0.01 else 0.86,
                     "reasoning": "same counterparty and currency with a clear partial payment amount",
                 }
             else:
@@ -88,6 +99,26 @@ class MatchingService:
             if best is None or float(candidate["confidence"]) > float(best["confidence"]):
                 best = candidate
         return best
+
+    def _consume_invoice_amount(
+        self,
+        *,
+        available_invoices: list[dict[str, Any]],
+        invoice_id: int,
+        consumed_amount: float,
+    ) -> list[dict[str, Any]]:
+        updated: list[dict[str, Any]] = []
+        for invoice in available_invoices:
+            if int(invoice["id"]) != int(invoice_id):
+                updated.append(invoice)
+                continue
+            current_remaining = float(invoice.get("remaining_amount") or invoice.get("total_amount") or 0.0)
+            new_remaining = round(current_remaining - consumed_amount, 2)
+            if new_remaining > 0.01:
+                updated_invoice = dict(invoice)
+                updated_invoice["remaining_amount"] = new_remaining
+                updated.append(updated_invoice)
+        return updated
 
     def _parse_date(self, raw_value: Any) -> date | None:
         if not raw_value:

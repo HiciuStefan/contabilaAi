@@ -713,13 +713,49 @@ class SQLiteTransactionStore:
                     i.issue_date,
                     i.counterparty_name,
                     i.total_amount,
-                    i.currency
+                    i.currency,
+                    ROUND(
+                        COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN im.status IN ('proposed', 'accepted')
+                                    THEN im.matched_amount
+                                    ELSE 0
+                                END
+                            ),
+                            0
+                        ),
+                        2
+                    ) AS matched_amount,
+                    ROUND(
+                        i.total_amount - COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN im.status IN ('proposed', 'accepted')
+                                    THEN im.matched_amount
+                                    ELSE 0
+                                END
+                            ),
+                            0
+                        ),
+                        2
+                    ) AS remaining_amount
                 FROM invoices AS i
                 LEFT JOIN invoice_matches AS im
                     ON im.invoice_id = i.id
-                   AND im.status IN ('proposed', 'accepted')
                 WHERE i.workspace_id = ?
-                  AND im.id IS NULL
+                  AND i.role = 'received'
+                GROUP BY
+                    i.id,
+                    i.workspace_id,
+                    i.import_batch_id,
+                    i.role,
+                    i.invoice_number,
+                    i.issue_date,
+                    i.counterparty_name,
+                    i.total_amount,
+                    i.currency
+                HAVING remaining_amount > 0.01
                 ORDER BY i.issue_date ASC, i.id ASC
                 """,
                 (int(workspace_id),),
