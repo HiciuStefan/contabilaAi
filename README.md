@@ -21,6 +21,8 @@ Use the bundled launcher:
 run-contabila.cmd
 ```
 
+The launcher now tries `.venv\Scripts\python.exe`, then the local bundled runtime at `D:\Proiecte\ContabilaAi_local\python\python.exe`, then `py`, then `python`, so it works even when the Windows `python` alias is disabled.
+
 The app now starts from a company workspace. Import files from the UI so each upload is attached to the selected firm and can later influence review, matching, and business memory.
 
 The current canonical PDF fixture used during bootstrap validation is:
