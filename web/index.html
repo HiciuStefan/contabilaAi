@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ContabilaAi</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section id="workspace-home" class="panel">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <p class="eyebrow">Workspace-uri</p>
+            <h2>Firme</h2>
+            <p class="muted">Creeaza sau redeschide o firma. Importurile noi se vor lega de firma selectata.</p>
+          </div>
+        </div>
+        <form id="workspace-create-form" class="workspace-create-form">
+          <label class="field">
+            <span>Nume firma</span>
+            <input id="workspace-name" type="text" placeholder="ex: MobExc">
+          </label>
+          <button id="workspace-create-button" type="submit">Firma noua</button>
+        </form>
+        <div id="workspace-current" class="answer">Nicio firma selectata inca.</div>
+        <div id="workspace-list" class="workspace-list">
+          <p class="muted">Workspace-urile apar aici dupa prima creare.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="hero">
+      <p class="eyebrow">Local finance copilot</p>
+      <h1>ContabilaAi</h1>
+      <p class="lede">Importa extrasul, pune intrebari peste datele reale si corecteaza rapid tranzactiile care merita revazute.</p>
+    </section>
+
+    <section class="panel grid">
+      <article class="card">
+        <h2>Import documente</h2>
+        <div class="button-row">
+          <button id="upload-button" type="button">Importa</button>
+          <button id="reset-button" type="button" class="button-secondary">Reseteaza tot</button>
+        </div>
+        <pre id="upload-result" class="output">Aplicatia porneste fara fisier preincarcat. Apasa Importa si alege un extras bancar sau o factura PDF.</pre>
+        <label class="field">
+          <span>Cale facturi emise PDF/JSON/CSV</span>
+          <input id="invoice-path" type="text" placeholder="Optional: lipeste calea catre factura sau lista de facturi emise">
+        </label>
+        <button id="invoice-upload-button" type="button">Importa facturi</button>
+        <pre id="invoice-upload-result" class="output">Daca importi facturi emise, cifra de afaceri se calculeaza din facturi, nu din incasari.</pre>
+      </article>
+
+      <article class="card">
+        <h2>Import activ</h2>
+        <label class="field">
+          <span>Set de date</span>
+          <select id="import-select">
+            <option value="">Niciun import selectat</option>
+          </select>
+        </label>
+        <div id="import-meta" class="answer">Aplicatia porneste fara sesiune activa. Importa un extras nou sau selecteaza un import salvat.</div>
+      </article>
+
+      <article class="card">
+        <h2>Intreaba datele</h2>
+        <label class="field">
+          <span>Intrebare</span>
+          <input id="question-input" type="text" value="cat am avut creditare pe 2024">
+        </label>
+        <button id="question-button" type="button">Trimite</button>
+      </article>
+
+      <article class="card">
+        <h2>Raspuns</h2>
+        <div id="answer" class="answer">Raspunsul apare aici.</div>
+        <div id="chat-rows" class="chat-results">
+          <p class="muted">Inca nu exista rezultat.</p>
+        </div>
+      </article>
+    </section>
+
+    <dialog id="import-dialog" class="modal">
+      <form method="dialog" class="modal-card">
+        <h2>Alege extrasul</h2>
+        <p class="muted">Selecteaza un extras bancar PDF/CSV/JSON sau o factura PDF. Daca selectorul nu merge, poti lipi si calea completa.</p>
+        <label class="field">
+          <span>Fisier</span>
+          <input id="upload-file" type="file" accept=".pdf,.csv,.json">
+        </label>
+        <label class="field">
+          <span>Cale fisier optionala</span>
+          <input id="upload-path" type="text" placeholder="C:\Users\stefan\Downloads\ExtrasDeCont.pdf">
+        </label>
+        <div class="button-row">
+          <button id="upload-confirm-button" type="button">Importa fisierul</button>
+          <button id="upload-cancel-button" type="button" class="button-secondary">Inchide</button>
+        </div>
+      </form>
+    </dialog>
+
+    <section class="panel">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2>Review rapid</h2>
+            <p class="muted">Aici apar grupuri de tranzactii cu incredere mica. Poti aplica o categorie pe tot grupul sau il poti marca drept corect.</p>
+          </div>
+          <button id="refresh-review" type="button">Reincarca</button>
+        </div>
+        <div id="review-list" class="review-list"></div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2>Categorii</h2>
+            <p class="muted">Vezi ce a fost clasificat, completeaza explicatia categoriei si muta tranzactiile acolo unde trebuie.</p>
+          </div>
+          <button id="categories-refresh" type="button">Reincarca</button>
+        </div>
+        <div id="categories-list" class="review-list">
+          <p class="muted">Categoriile apar aici dupa primul import si dupa primele clasificari.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2>Toate tranzactiile</h2>
+            <p class="muted">Registru complet pentru importul activ. Filtreaza mai ales dupa valoare ca sa verifici rapid tranzactiile mari.</p>
+          </div>
+          <button id="transactions-refresh" type="button">Incarca</button>
+        </div>
+        <div class="transaction-filters">
+          <label class="field">
+            <span>Valoare minima absoluta</span>
+            <input id="tx-min-amount" type="number" step="0.01" placeholder="ex: 1000">
+          </label>
+          <label class="field">
+            <span>Directie</span>
+            <select id="tx-direction">
+              <option value="">Toate</option>
+              <option value="inflow">Incasari</option>
+              <option value="outflow">Plati</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Cauta</span>
+            <input id="tx-search" type="text" placeholder="partener sau descriere">
+          </label>
+        </div>
+        <div id="transactions-list" class="review-list">
+          <p class="muted">Apasa Incarca pentru a vedea tranzactiile.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <article class="card">
+        <h2>Rezumat</h2>
+        <pre id="summary" class="output">Inca nu exista date in sumar.</pre>
+      </article>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
