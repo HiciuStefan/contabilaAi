@@ -17,38 +17,99 @@ class MatchingService:
         proposals: list[dict[str, Any]] = []
         available_invoices = list(invoices)
         for transaction in transactions:
-            candidate = self._pick_best_invoice_candidate(transaction, available_invoices)
-            if candidate is None:
+            candidates = self._pick_invoice_candidates_for_transaction(transaction, available_invoices)
+            if not candidates:
                 continue
-            created = self._store.create_invoice_match(
-                workspace_id=workspace_id,
-                transaction_id=int(transaction["id"]),
-                invoice_id=int(candidate["invoice"]["id"]),
-                match_kind=str(candidate["match_kind"]),
-                matched_amount=float(candidate["matched_amount"]),
-                residual_amount=float(candidate["residual_amount"]),
-                confidence=float(candidate["confidence"]),
-                reasoning=str(candidate["reasoning"]),
-            )
-            proposals.append(created)
-            available_invoices = self._consume_invoice_amount(
-                available_invoices=available_invoices,
-                invoice_id=int(candidate["invoice"]["id"]),
-                consumed_amount=float(candidate["matched_amount"]),
-            )
+            for candidate in candidates:
+                created = self._store.create_invoice_match(
+                    workspace_id=workspace_id,
+                    transaction_id=int(transaction["id"]),
+                    invoice_id=int(candidate["invoice"]["id"]),
+                    match_kind=str(candidate["match_kind"]),
+                    matched_amount=float(candidate["matched_amount"]),
+                    residual_amount=float(candidate["residual_amount"]),
+                    confidence=float(candidate["confidence"]),
+                    reasoning=str(candidate["reasoning"]),
+                )
+                proposals.append(created)
+                available_invoices = self._consume_invoice_amount(
+                    available_invoices=available_invoices,
+                    invoice_id=int(candidate["invoice"]["id"]),
+                    consumed_amount=float(candidate["matched_amount"]),
+                )
         return proposals
 
-    def _pick_best_invoice_candidate(
+    def _pick_invoice_candidates_for_transaction(
         self,
         transaction: dict[str, Any],
         invoices: list[dict[str, Any]],
-    ) -> dict[str, Any] | None:
+    ) -> list[dict[str, Any]]:
         tx_amount = abs(float(transaction["amount"]))
+        eligible_invoices = self._eligible_invoices_for_transaction(transaction, invoices)
+        if not eligible_invoices:
+            return []
+
+        best_single = self._pick_best_single_invoice_candidate(transaction, eligible_invoices)
+        if best_single is not None:
+            return [best_single]
+
+        total_remaining = round(
+            sum(float(invoice.get("remaining_amount") or invoice.get("total_amount") or 0.0) for invoice in eligible_invoices),
+            2,
+        )
+        if tx_amount - total_remaining > 0.01:
+            return []
+        if len(eligible_invoices) < 2:
+            return []
+
+        remaining = tx_amount
+        allocations: list[dict[str, Any]] = []
+        for invoice in sorted(
+            eligible_invoices,
+            key=lambda item: (str(item.get("issue_date") or ""), int(item.get("id", 0))),
+        ):
+            if remaining <= 0.01:
+                break
+            invoice_total = float(invoice.get("total_amount") or 0.0)
+            invoice_remaining = float(invoice.get("remaining_amount") or invoice_total)
+            already_matched = round(invoice_total - invoice_remaining, 2)
+            if invoice_remaining <= 0.01:
+                continue
+            matched_amount = round(min(invoice_remaining, remaining), 2)
+            if matched_amount <= 0.01:
+                continue
+            residual_amount = round(invoice_remaining - matched_amount, 2)
+            if matched_amount < invoice_remaining:
+                match_kind = "installment_payment" if already_matched >= 0.01 else "partial_payment"
+                confidence = 0.8
+            else:
+                match_kind = "installment_payment" if already_matched >= 0.01 else "bulk_settlement"
+                confidence = 0.84
+            allocations.append(
+                {
+                    "invoice": invoice,
+                    "match_kind": match_kind,
+                    "matched_amount": matched_amount,
+                    "residual_amount": residual_amount,
+                    "confidence": confidence,
+                    "reasoning": "same counterparty and currency; payment split across multiple open received invoices",
+                }
+            )
+            remaining = round(remaining - matched_amount, 2)
+
+        if remaining > 0.01:
+            return []
+        return allocations
+
+    def _eligible_invoices_for_transaction(
+        self,
+        transaction: dict[str, Any],
+        invoices: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         tx_currency = str(transaction.get("currency") or "")
         tx_name = normalize_entity_name(transaction.get("merchant"))
         tx_date = self._parse_date(transaction.get("transaction_date"))
-        best: dict[str, Any] | None = None
-
+        eligible: list[dict[str, Any]] = []
         for invoice in invoices:
             if str(invoice.get("currency") or "") != tx_currency:
                 continue
@@ -57,13 +118,29 @@ class MatchingService:
                 continue
             invoice_total = float(invoice.get("total_amount") or 0)
             invoice_remaining = float(invoice.get("remaining_amount") or invoice_total)
+            if invoice_total <= 0 or invoice_remaining <= 0:
+                continue
+            invoice_date = self._parse_date(invoice.get("issue_date"))
+            if tx_date and invoice_date and abs((tx_date - invoice_date).days) > 45:
+                continue
+            eligible.append(invoice)
+        return eligible
+
+    def _pick_best_single_invoice_candidate(
+        self,
+        transaction: dict[str, Any],
+        invoices: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        tx_amount = abs(float(transaction["amount"]))
+        best: dict[str, Any] | None = None
+
+        for invoice in invoices:
+            invoice_total = float(invoice.get("total_amount") or 0)
+            invoice_remaining = float(invoice.get("remaining_amount") or invoice_total)
             already_matched = round(invoice_total - invoice_remaining, 2)
             if invoice_total <= 0 or invoice_remaining <= 0:
                 continue
             if tx_amount - invoice_remaining > 0.01:
-                continue
-            invoice_date = self._parse_date(invoice.get("issue_date"))
-            if tx_date and invoice_date and abs((tx_date - invoice_date).days) > 45:
                 continue
 
             if abs(tx_amount - invoice_total) < 0.01 and already_matched < 0.01:
