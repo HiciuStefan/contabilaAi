@@ -6,6 +6,8 @@ from typing import Any
 from contabila_ai.classification import normalize_entity_name
 from contabila_ai.storage.store import SQLiteTransactionStore
 
+MATCH_WINDOW_DAYS = (45, 120, 365)
+
 
 class MatchingService:
     def __init__(self, store: SQLiteTransactionStore) -> None:
@@ -45,66 +47,73 @@ class MatchingService:
         invoices: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         tx_amount = abs(float(transaction["amount"]))
-        eligible_invoices = self._eligible_invoices_for_transaction(transaction, invoices)
-        if not eligible_invoices:
-            return []
-
-        best_single = self._pick_best_single_invoice_candidate(transaction, eligible_invoices)
-        if best_single is not None:
-            return [best_single]
-
-        total_remaining = round(
-            sum(float(invoice.get("remaining_amount") or invoice.get("total_amount") or 0.0) for invoice in eligible_invoices),
-            2,
-        )
-        if tx_amount - total_remaining > 0.01:
-            return []
-        if len(eligible_invoices) < 2:
-            return []
-
-        remaining = tx_amount
-        allocations: list[dict[str, Any]] = []
-        for invoice in sorted(
-            eligible_invoices,
-            key=lambda item: (str(item.get("issue_date") or ""), int(item.get("id", 0))),
-        ):
-            if remaining <= 0.01:
-                break
-            invoice_total = float(invoice.get("total_amount") or 0.0)
-            invoice_remaining = float(invoice.get("remaining_amount") or invoice_total)
-            already_matched = round(invoice_total - invoice_remaining, 2)
-            if invoice_remaining <= 0.01:
-                continue
-            matched_amount = round(min(invoice_remaining, remaining), 2)
-            if matched_amount <= 0.01:
-                continue
-            residual_amount = round(invoice_remaining - matched_amount, 2)
-            if matched_amount < invoice_remaining:
-                match_kind = "installment_payment" if already_matched >= 0.01 else "partial_payment"
-                confidence = 0.8
-            else:
-                match_kind = "installment_payment" if already_matched >= 0.01 else "bulk_settlement"
-                confidence = 0.84
-            allocations.append(
-                {
-                    "invoice": invoice,
-                    "match_kind": match_kind,
-                    "matched_amount": matched_amount,
-                    "residual_amount": residual_amount,
-                    "confidence": confidence,
-                    "reasoning": "same counterparty and currency; payment split across multiple open received invoices",
-                }
+        for max_window_days in MATCH_WINDOW_DAYS:
+            eligible_invoices = self._eligible_invoices_for_transaction(
+                transaction,
+                invoices,
+                max_window_days=max_window_days,
             )
-            remaining = round(remaining - matched_amount, 2)
+            if not eligible_invoices:
+                continue
 
-        if remaining > 0.01:
-            return []
-        return allocations
+            best_single = self._pick_best_single_invoice_candidate(transaction, eligible_invoices)
+            if best_single is not None:
+                return [best_single]
+
+            total_remaining = round(
+                sum(float(invoice.get("remaining_amount") or invoice.get("total_amount") or 0.0) for invoice in eligible_invoices),
+                2,
+            )
+            if tx_amount - total_remaining > 0.01:
+                continue
+            if len(eligible_invoices) < 2:
+                continue
+
+            remaining = tx_amount
+            allocations: list[dict[str, Any]] = []
+            for invoice in sorted(
+                eligible_invoices,
+                key=lambda item: (str(item.get("issue_date") or ""), int(item.get("id", 0))),
+            ):
+                if remaining <= 0.01:
+                    break
+                invoice_total = float(invoice.get("total_amount") or 0.0)
+                invoice_remaining = float(invoice.get("remaining_amount") or invoice_total)
+                already_matched = round(invoice_total - invoice_remaining, 2)
+                if invoice_remaining <= 0.01:
+                    continue
+                matched_amount = round(min(invoice_remaining, remaining), 2)
+                if matched_amount <= 0.01:
+                    continue
+                residual_amount = round(invoice_remaining - matched_amount, 2)
+                if matched_amount < invoice_remaining:
+                    match_kind = "installment_payment" if already_matched >= 0.01 else "partial_payment"
+                    confidence = 0.8
+                else:
+                    match_kind = "installment_payment" if already_matched >= 0.01 else "bulk_settlement"
+                    confidence = 0.84 if max_window_days <= 45 else 0.8
+                allocations.append(
+                    {
+                        "invoice": invoice,
+                        "match_kind": match_kind,
+                        "matched_amount": matched_amount,
+                        "residual_amount": residual_amount,
+                        "confidence": confidence,
+                        "reasoning": "same counterparty and currency; payment split across multiple open received invoices",
+                    }
+                )
+                remaining = round(remaining - matched_amount, 2)
+
+            if remaining <= 0.01:
+                return allocations
+        return []
 
     def _eligible_invoices_for_transaction(
         self,
         transaction: dict[str, Any],
         invoices: list[dict[str, Any]],
+        *,
+        max_window_days: int = 45,
     ) -> list[dict[str, Any]]:
         tx_currency = str(transaction.get("currency") or "")
         tx_name = normalize_entity_name(transaction.get("merchant"))
@@ -121,7 +130,7 @@ class MatchingService:
             if invoice_total <= 0 or invoice_remaining <= 0:
                 continue
             invoice_date = self._parse_date(invoice.get("issue_date"))
-            if tx_date and invoice_date and abs((tx_date - invoice_date).days) > 45:
+            if tx_date and invoice_date and abs((tx_date - invoice_date).days) > max_window_days:
                 continue
             eligible.append(invoice)
         return eligible

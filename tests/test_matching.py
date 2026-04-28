@@ -275,6 +275,74 @@ class MatchingServiceTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_matching_service_can_match_bundle_settlement_beyond_short_window(self) -> None:
+        db_path = ROOT / "test_matching_delayed_bundle.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-06-25",
+                        description="Plata facturi restante Casa Decor",
+                        amount=-1000.0,
+                        currency="RON",
+                        balance=3100.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"tx-delayed-bundle"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            import_batch_id = store.create_document_import_batch(
+                source_path=ROOT / "_received_delayed_bundle.json",
+                workspace_id=workspace_id,
+                source_type="received_invoice",
+            )
+            store.insert_invoices(
+                workspace_id=workspace_id,
+                import_batch_id=import_batch_id,
+                role="received",
+                invoices=[
+                    ImportedInvoice(
+                        invoice_number="R-0400",
+                        issue_date="2025-03-01",
+                        customer_name="Casa Decor SRL",
+                        net_amount=336.13,
+                        vat_amount=63.87,
+                        total_amount=400.0,
+                        currency="RON",
+                        status="issued",
+                        source_file="received.json",
+                        raw_payload='{"invoice":"R-0400"}',
+                    ),
+                    ImportedInvoice(
+                        invoice_number="R-0600",
+                        issue_date="2025-03-05",
+                        customer_name="Casa Decor SRL",
+                        net_amount=504.2,
+                        vat_amount=95.8,
+                        total_amount=600.0,
+                        currency="RON",
+                        status="issued",
+                        source_file="received.json",
+                        raw_payload='{"invoice":"R-0600"}',
+                    ),
+                ],
+            )
+
+            service = MatchingService(store)
+            proposals = service.match_workspace(workspace_id=workspace_id)
+
+            self.assertEqual(len(proposals), 2)
+            self.assertEqual({proposal["match_kind"] for proposal in proposals}, {"bulk_settlement"})
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()
