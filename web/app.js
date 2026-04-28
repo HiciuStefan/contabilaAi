@@ -714,11 +714,15 @@ function renderChangeReviewItems(items) {
     changeReviewList.innerHTML = '<p class="muted">Nu exista schimbari propuse in acest moment.</p>';
     return;
   }
+  const fieldLabels = {
+    analysis_category: "categorie propusa",
+    entity_type: "tip entitate propus",
+  };
   changeReviewList.innerHTML = items.map((item) => `
     <article class="review-item">
       <div class="review-main">
         <div class="review-topline">
-          <strong>${escapeHtml(item.field_name || "schimbare")}</strong>
+          <strong>${escapeHtml(fieldLabels[item.field_name] || item.field_name || "schimbare")}</strong>
           <span>${escapeHtml(item.status || "pending")}</span>
         </div>
         <div class="review-meta">
@@ -727,6 +731,15 @@ function renderChangeReviewItems(items) {
           <span>confidence ${escapeHtml(String(item.confidence || 0))}</span>
         </div>
         <p class="muted">${escapeHtml(item.reason || "Fara motiv explicit")}</p>
+        ${item.transaction_id ? `
+          <div class="review-meta">
+            <span>${escapeHtml(item.transaction_date || "-")}</span>
+            <span>${escapeHtml(item.merchant || "Fara partener")}</span>
+            <span>${escapeHtml(formatAmount(item.amount || 0, item.currency || "RON"))}</span>
+          </div>
+          <p class="muted">${escapeHtml(item.description || "-")}</p>
+          <p class="muted">Acum: tip ${escapeHtml(prettyEntityType(item.entity_type))}, categorii ${escapeHtml(item.category_names || "-")}.</p>
+        ` : ""}
       </div>
       <div class="review-actions">
         <button type="button" data-action="change-review-decision" data-decision="accept" data-id="${item.id}">Accepta</button>

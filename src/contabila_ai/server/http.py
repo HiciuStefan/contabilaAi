@@ -239,7 +239,28 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             workspace_id = self._parse_workspace_id(parsed.query)
             if workspace_id is None:
                 raise ValueError("workspace_id is required.")
-            self._send_json({"items": self.services["store"].list_change_review_items(workspace_id)})
+            items = []
+            for item in self.services["store"].list_change_review_items(workspace_id):
+                enriched = dict(item)
+                transaction_id = enriched.get("transaction_id")
+                if transaction_id is not None:
+                    transaction = self.services["store"].fetch_transaction_by_id(int(transaction_id))
+                    if transaction:
+                        enriched.update(
+                            {
+                                "merchant": transaction.get("merchant"),
+                                "description": transaction.get("description"),
+                                "transaction_date": transaction.get("transaction_date"),
+                                "amount": transaction.get("amount"),
+                                "currency": transaction.get("currency"),
+                                "entity_type": transaction.get("entity_type"),
+                                "economic_kind": transaction.get("economic_kind"),
+                                "direction": transaction.get("direction"),
+                                "category_names": transaction.get("category_names"),
+                            }
+                        )
+                items.append(enriched)
+            self._send_json({"items": items})
             return
         if parsed.path == "/api/business-memory":
             workspace_id = self._parse_workspace_id(parsed.query)

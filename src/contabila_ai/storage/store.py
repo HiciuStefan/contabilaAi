@@ -1205,6 +1205,7 @@ class SQLiteTransactionStore:
                 SELECT
                     t.id,
                     t.import_batch_id,
+                    t.transaction_date,
                     t.merchant,
                     t.description,
                     t.amount,
@@ -1224,6 +1225,7 @@ class SQLiteTransactionStore:
                 GROUP BY
                     t.id,
                     t.import_batch_id,
+                    t.transaction_date,
                     t.merchant,
                     t.description,
                     t.amount,
