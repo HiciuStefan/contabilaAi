@@ -11,7 +11,7 @@ This repository already ships the current workspace architecture:
 - workspace invoice hub
 - phase 1 invoice matching
 - change review workflow
-- onboarding shell for `home -> onboarding -> ready`
+- guided onboarding flow for `home -> onboarding -> ready`
 
 ## Run locally
 
@@ -66,7 +66,7 @@ http://127.0.0.1:8010
 - propose phase 1 matches between invoices and payments
 - create change review items for proposed category changes
 - block serious questions while `critical` or `high` review items remain
-- route the UI between workspace home, onboarding, and ready workspace shells
+- route the UI between workspace home, guided onboarding, and ready workspace tabs
 
 ## Bootstrap validation snapshot
 

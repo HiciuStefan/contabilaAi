@@ -572,7 +572,7 @@ At the current stage of the repository, the product already implements the main 
 - phase 1 invoice matching
 - change review workflow for category proposals
 - natural-language planner for a subset of supported finance questions, now scoped to workspace and project filters
-- onboarding shell that distinguishes `workspace home`, `onboarding`, and `ready workspace`
+- onboarding workflow with checklist, guided tabs, business memory input, invoice hub, and change review visibility
 - tests covering storage, import, planner, matching, change review, review, workspaces, and HTTP smoke flows
 
 This is still not the final target product, but it is now well beyond a generic MVP bootstrap.
@@ -586,8 +586,7 @@ The major gaps between the current implementation and the intended full product 
 - invoice matching now supports one-to-one, installments, and one-payment-to-multiple-invoices,
   but still needs deeper many-to-many balancing heuristics across longer payment timelines
 - change review is implemented for category proposals, but not yet for the full field matrix
-- onboarding exists as a shell and routing model, but still needs richer step-specific UI
-- the invoice hub and matching need deeper analytics and operator tooling
+- invoice hub and matching are now visible in the workspace UI, but still need deeper analytics and operator tooling
 
 ## 15. Architecture Direction
 
