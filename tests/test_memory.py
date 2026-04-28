@@ -13,6 +13,14 @@ if str(SRC_DIR) not in sys.path:
 
 from contabila_ai.importing.models import ImportedTransaction  # noqa: E402
 from contabila_ai.memory import BusinessMemoryService, parse_instruction_to_facts  # noqa: E402
+
+
+class FakeSemanticProvider:
+    def __init__(self, proposals):
+        self._proposals = proposals
+
+    def extract(self, raw_text: str):
+        return list(self._proposals)
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
@@ -133,6 +141,77 @@ class BusinessMemoryTest(unittest.TestCase):
         self.assertEqual(len(facts), 2)
         self.assertEqual({fact.fact_type for fact in facts}, {"project_assignment"})
         self.assertEqual({fact.fact_value for fact in facts}, {"Atlas"})
+
+    def test_parse_instruction_to_facts_uses_valid_semantic_provider_output(self) -> None:
+        facts = parse_instruction_to_facts(
+            "Metro Romania nu e partener comercial, e furnizor",
+            semantic_provider=FakeSemanticProvider(
+                [
+                    {
+                        "fact_type": "entity_type",
+                        "subject_name": "Metro Romania",
+                        "fact_value": "furnizor",
+                        "confidence": 0.93,
+                    }
+                ]
+            ),
+        )
+
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0].fact_type, "entity_type")
+        self.assertEqual(facts[0].subject_name, "Metro Romania")
+        self.assertEqual(facts[0].fact_value, "furnizor")
+        self.assertEqual(facts[0].confidence, 0.93)
+
+    def test_parse_instruction_to_facts_falls_back_when_semantic_provider_output_is_invalid(self) -> None:
+        facts = parse_instruction_to_facts(
+            "Ai Excellence e partener",
+            semantic_provider=FakeSemanticProvider(
+                [
+                    {
+                        "fact_type": "unknown_fact",
+                        "subject_name": "",
+                        "fact_value": "???",
+                    }
+                ]
+            ),
+        )
+
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0].fact_type, "entity_type")
+        self.assertEqual(facts[0].subject_name, "Ai Excellence")
+        self.assertEqual(facts[0].fact_value, "partener")
+
+    def test_business_instruction_accepts_supplier_label_from_semantic_provider(self) -> None:
+        db_path = ROOT / "test_business_memory_semantic_supplier.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            service = BusinessMemoryService(
+                store,
+                semantic_provider=FakeSemanticProvider(
+                    [
+                        {
+                            "fact_type": "entity_type",
+                            "subject_name": "Metro Romania",
+                            "fact_value": "furnizor",
+                            "confidence": 0.91,
+                        }
+                    ]
+                ),
+            )
+
+            result = service.add_instruction(workspace_id, "Metro Romania este furnizorul nostru principal")
+            entity_memory = store.entity_memory_map()
+
+            self.assertEqual(result["fact_count"], 1)
+            self.assertIn("metro romania", entity_memory)
+            self.assertEqual(entity_memory["metro romania"]["entity_type"], "supplier")
+        finally:
+            if db_path.exists():
+                db_path.unlink()
 
     def test_business_memory_category_rule_creates_change_review_for_matching_transactions(self) -> None:
         db_path = ROOT / "test_business_memory_category_rule.sqlite3"

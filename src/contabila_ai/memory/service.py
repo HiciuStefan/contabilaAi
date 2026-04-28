@@ -5,6 +5,11 @@ import re
 from typing import TYPE_CHECKING
 
 from contabila_ai.memory.models import BusinessFact
+from contabila_ai.memory.semantic import (
+    ENTITY_TYPE_ALIASES,
+    build_default_semantic_provider,
+    validate_semantic_proposals,
+)
 
 if TYPE_CHECKING:
     from contabila_ai.storage.store import SQLiteTransactionStore
@@ -12,7 +17,9 @@ if TYPE_CHECKING:
 
 ENTITY_TYPE_MAP = {
     "partener": "partner",
+    "client": "client",
     "colaborator": "collaborator",
+    "furnizor": "supplier",
     "asociat": "owner",
     "banca": "bank",
     "stat": "state",
@@ -21,11 +28,12 @@ ENTITY_LABEL_PATTERN = "|".join(re.escape(label) for label in ENTITY_TYPE_MAP)
 
 
 class BusinessMemoryService:
-    def __init__(self, store: SQLiteTransactionStore) -> None:
+    def __init__(self, store: SQLiteTransactionStore, semantic_provider=None) -> None:
         self._store = store
+        self._semantic_provider = semantic_provider or build_default_semantic_provider()
 
     def add_instruction(self, workspace_id: int, raw_text: str) -> dict[str, object]:
-        facts = parse_instruction_to_facts(raw_text)
+        facts = parse_instruction_to_facts(raw_text, semantic_provider=self._semantic_provider)
         instruction_id = self._store.add_business_instruction(workspace_id=workspace_id, raw_text=raw_text)
         inserted = self._store.add_business_facts(workspace_id=workspace_id, instruction_id=instruction_id, facts=facts)
         for fact in facts:
@@ -74,8 +82,16 @@ class BusinessMemoryService:
             )
 
 
-def parse_instruction_to_facts(raw_text: str) -> list[BusinessFact]:
+def parse_instruction_to_facts(raw_text: str, semantic_provider=None) -> list[BusinessFact]:
     text = " ".join(raw_text.split()).strip()
+    if semantic_provider is not None:
+        try:
+            proposals = semantic_provider.extract(text)
+        except Exception:
+            proposals = []
+        facts = validate_semantic_proposals(proposals)
+        if facts:
+            return facts
     for extractor in (
         _extract_entity_correction,
         _extract_entity_assertion,
@@ -106,6 +122,15 @@ def _extract_entity_correction(text: str) -> list[BusinessFact]:
 
 def _extract_entity_assertion(text: str) -> list[BusinessFact]:
     lowered = text.lower()
+    supplier_phrase_match = re.search(
+        r"(?P<subject>.+?)\s+este\s+furnizor(?:ul)?(?:\s+nostru)?(?:\s+principal)?(?:\b|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if supplier_phrase_match:
+        subject_name = supplier_phrase_match.group("subject").strip(" ,.")
+        if subject_name:
+            return [BusinessFact(fact_type="entity_type", subject_name=subject_name, fact_value="furnizor")]
     entity_match = re.search(
         rf"(?P<subject>.+?)\s+(?:este|e)\s+(?P<label>{ENTITY_LABEL_PATTERN})(?:\b|$)",
         text,
@@ -123,6 +148,12 @@ def _extract_entity_assertion(text: str) -> list[BusinessFact]:
             subject_name = text[: len(text) - len(suffix)].strip(" ,.")
             if subject_name:
                 return [BusinessFact(fact_type="entity_type", subject_name=subject_name, fact_value=romanian_label)]
+    for alias, normalized_label in ENTITY_TYPE_ALIASES.items():
+        suffix = f" este {alias}"
+        if lowered.endswith(suffix):
+            subject_name = text[: len(text) - len(suffix)].strip(" ,.")
+            if subject_name and normalized_label in ENTITY_TYPE_MAP:
+                return [BusinessFact(fact_type="entity_type", subject_name=subject_name, fact_value=normalized_label)]
     return []
 
 
