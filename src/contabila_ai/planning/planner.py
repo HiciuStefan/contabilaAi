@@ -332,7 +332,7 @@ def _detect_entity_name(
     for pattern in ambiguous_patterns:
         match = re.search(pattern, question)
         if match:
-            candidate = _clean_capture(match.group(1))
+            candidate = _strip_project_suffix(_clean_capture(match.group(1)))
             if candidate and candidate != analysis_category:
                 return candidate
 
@@ -345,7 +345,7 @@ def _detect_entity_name(
         match = re.search(pattern, question)
         if not match:
             continue
-        candidate = _clean_capture(match.group(1))
+        candidate = _strip_project_suffix(_clean_capture(match.group(1)))
         if candidate and candidate != analysis_category:
             return candidate
 
@@ -403,6 +403,10 @@ def _mentions_creditare_recovery(question: str) -> bool:
 
 def _clean_capture(value: str) -> str:
     return normalize_text(value).strip(" ?!.,:;")
+
+
+def _strip_project_suffix(value: str) -> str:
+    return re.sub(r"\s+pe proiectul\s+[a-z0-9 .&_-]+$", "", value).strip()
 
 
 def _detect_creditare_focus(question: str, metric: str) -> str | None:

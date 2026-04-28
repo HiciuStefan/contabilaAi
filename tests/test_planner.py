@@ -117,6 +117,14 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(plan.support_level, "exact")
         self.assertEqual(plan.entity_name, "ai excellence")
 
+    def test_build_query_plan_detects_entity_relationship_summary_with_project_scope(self) -> None:
+        plan = build_query_plan("care e situatia lui Casa Decor pe proiectul Casa Noua")
+
+        self.assertEqual(plan.metric, "entity_relationship_summary")
+        self.assertEqual(plan.support_level, "exact")
+        self.assertEqual(plan.entity_name, "casa decor")
+        self.assertEqual(plan.project_name, "casa noua")
+
     def test_build_query_plan_extracts_project_name(self) -> None:
         plan = build_query_plan("cat am platit pe proiectul Casa Noua")
 
@@ -482,6 +490,76 @@ class PlannerTest(unittest.TestCase):
                         "net_value": 2000.0,
                         "transaction_count": 2,
                         "entity_type": "partner",
+                    }
+                ],
+            )
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_store_execute_plan_returns_entity_relationship_summary_scoped_to_project(self) -> None:
+        db_path = ROOT / "test_planner_entity_relationship_project.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-02-10",
+                        description="Plata Casa Decor proiect Casa Noua",
+                        amount=-1200.0,
+                        currency="RON",
+                        balance=8800.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"project-rel-1"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-02-12",
+                        description="Plata Casa Decor alt proiect",
+                        amount=-700.0,
+                        currency="RON",
+                        balance=8100.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"project-rel-2"}',
+                    ),
+                ],
+                workspace_id=workspace_id,
+            )
+            instruction_id = store.add_business_instruction(
+                workspace_id=workspace_id,
+                raw_text="Casa Decor SRL lucreaza pe proiectul Casa Noua",
+            )
+            from contabila_ai.memory.models import BusinessFact  # noqa: E402
+
+            store.add_business_facts(
+                workspace_id=workspace_id,
+                instruction_id=instruction_id,
+                facts=[
+                    BusinessFact(
+                        fact_type="project_assignment",
+                        subject_name="Casa Decor SRL",
+                        fact_value="Casa Noua",
+                    )
+                ],
+            )
+
+            plan = build_query_plan("care e situatia lui Casa Decor pe proiectul Casa Noua")
+            result = store.execute_plan_for_import(plan, workspace_id=workspace_id)
+
+            self.assertEqual(
+                result.rows,
+                [
+                    {
+                        "group_key": None,
+                        "income_total": 0.0,
+                        "expense_total": 1900.0,
+                        "net_value": -1900.0,
+                        "transaction_count": 2,
+                        "entity_type": "collaborator",
                     }
                 ],
             )
@@ -979,6 +1057,26 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("plati 1000.0", answer.lower())
         self.assertIn("net 2000.0", answer.lower())
         self.assertIn("ai excellence", answer.lower())
+
+    def test_render_answer_mentions_project_for_entity_relationship_question(self) -> None:
+        plan = build_query_plan("care e situatia lui Casa Decor pe proiectul Casa Noua")
+
+        answer = render_answer(
+            plan,
+            [
+                {
+                    "group_key": None,
+                    "income_total": 0.0,
+                    "expense_total": 1900.0,
+                    "net_value": -1900.0,
+                    "transaction_count": 2,
+                    "entity_type": "collaborator",
+                }
+            ],
+        )
+
+        self.assertIn("proiectul casa noua", answer.lower())
+        self.assertIn("casa decor", answer.lower())
 
     def test_render_answer_marks_statement_aggregation_as_exact_line_sum(self) -> None:
         plan = build_query_plan("cat am avut incasari pe 2025")

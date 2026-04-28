@@ -800,12 +800,17 @@ def render_answer(plan: Any, rows: list[dict[str, Any]]) -> str:
     if getattr(plan, "metric", "") == "entity_relationship_summary":
         if not rows:
             entity_name = getattr(plan, "entity_name", "entitatea ceruta")
+            project_name = getattr(plan, "project_name", None)
+            if project_name:
+                return f"Nu am gasit tranzactii pentru relatia cu {entity_name} pe proiectul {project_name}."
             return f"Nu am gasit tranzactii pentru relatia cu {entity_name}."
         row = rows[0]
         entity_name = getattr(plan, "entity_name", "entitatea ceruta")
         entity_type = row.get("entity_type") or "necunoscut"
+        project_name = getattr(plan, "project_name", None)
+        scope_text = f" pe proiectul {project_name}" if project_name else ""
         return (
-            f"Relatia cu {entity_name}: incasari {row.get('income_total', 0)}, "
+            f"Relatia cu {entity_name}{scope_text}: incasari {row.get('income_total', 0)}, "
             f"plati {row.get('expense_total', 0)}, net {row.get('net_value', 0)}. "
             f"Tip entitate observat: {entity_type}."
         )
