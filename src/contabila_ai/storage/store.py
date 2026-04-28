@@ -1204,8 +1204,14 @@ class SQLiteTransactionStore:
                 f"""
                 SELECT
                     t.id,
+                    t.import_batch_id,
                     t.merchant,
                     t.description,
+                    t.amount,
+                    t.currency,
+                    t.economic_kind,
+                    t.direction,
+                    t.entity_type,
                     t.confidence,
                     t.reason,
                     COALESCE(GROUP_CONCAT(ac.name, ','), '') AS category_names
@@ -1215,7 +1221,18 @@ class SQLiteTransactionStore:
                 LEFT JOIN analysis_categories AS ac
                     ON ac.id = tcl.category_id
                 WHERE t.id IN ({placeholders})
-                GROUP BY t.id, t.merchant, t.description, t.confidence, t.reason
+                GROUP BY
+                    t.id,
+                    t.import_batch_id,
+                    t.merchant,
+                    t.description,
+                    t.amount,
+                    t.currency,
+                    t.economic_kind,
+                    t.direction,
+                    t.entity_type,
+                    t.confidence,
+                    t.reason
                 ORDER BY t.id ASC
                 """,
                 tuple(resolved_ids),

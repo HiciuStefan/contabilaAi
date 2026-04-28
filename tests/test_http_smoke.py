@@ -597,6 +597,72 @@ class HttpSmokeTest(unittest.TestCase):
             if data_dir.exists():
                 data_dir.rmdir()
 
+    def test_change_review_entity_type_decision_updates_transaction(self) -> None:
+        data_dir = ROOT / "test_http_data_change_review_entity_type"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-10",
+                        description="Plata servicii externe",
+                        amount=-1250.0,
+                        currency="RON",
+                        balance=4100.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"http-change-review-entity"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            transaction_id = services["store"].list_transactions(limit=5)[0]["id"]
+            item = services["store"].create_change_review_item(
+                workspace_id=workspace_id,
+                transaction_id=transaction_id,
+                field_name="entity_type",
+                old_value="",
+                new_value="supplier",
+                reason="received invoice suggests supplier",
+                confidence=0.79,
+            )
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                decision_request = Request(
+                    f"{base_url}/api/change-review/decision",
+                    data=json.dumps({"item_id": item["id"], "decision": "accept"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(decision_request, timeout=5) as response:
+                    decision_payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            transaction = services["store"].fetch_transaction_by_id(transaction_id)
+            self.assertEqual(decision_payload["decision"], "accept")
+            self.assertEqual(decision_payload["item"]["field_name"], "entity_type")
+            self.assertEqual(transaction["entity_type"], "supplier")
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
     def test_transactions_endpoint_is_scoped_by_workspace(self) -> None:
         data_dir = ROOT / "test_http_data_transactions_workspace_scope"
         if data_dir.exists():
