@@ -1384,6 +1384,10 @@ class SQLiteTransactionStore:
     def execute_plan(self, plan: QueryPlan) -> QueryExecution:
         if plan.metric == "unsupported":
             return QueryExecution(plan=plan, sql="", params=(), rows=[])
+        if plan.metric == "entity_relationship_summary":
+            sql, params = self._build_entity_relationship_summary_query(plan)
+            rows = self.query(sql, params)
+            return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
         if plan.metric == "creditare_vs_recuperare":
             sql, params = self._build_creditare_recovery_query(plan)
             rows = self.query(sql, params)
@@ -1411,6 +1415,14 @@ class SQLiteTransactionStore:
     ) -> QueryExecution:
         if plan.metric == "unsupported":
             return QueryExecution(plan=plan, sql="", params=(), rows=[])
+        if plan.metric == "entity_relationship_summary":
+            sql, params = self._build_entity_relationship_summary_query(
+                plan,
+                import_batch_id=import_batch_id,
+                workspace_id=workspace_id,
+            )
+            rows = self.query(sql, params)
+            return QueryExecution(plan=plan, sql=sql, params=params, rows=rows)
         if plan.metric == "creditare_vs_recuperare":
             sql, params = self._build_creditare_recovery_query(
                 plan,
@@ -1445,6 +1457,14 @@ class SQLiteTransactionStore:
     ) -> list[dict[str, Any]]:
         if plan.metric == "unsupported":
             return []
+        if plan.metric == "entity_relationship_summary":
+            return self.query(
+                *self._build_entity_relationship_rows_query(
+                    plan,
+                    import_batch_id=import_batch_id,
+                    workspace_id=workspace_id,
+                )
+            )
         if plan.metric == "creditare_vs_recuperare":
             return self.query(
                 *self._build_creditare_recovery_rows_query(
@@ -1898,6 +1918,95 @@ class SQLiteTransactionStore:
                 WHEN 'recuperare_creditare' THEN 2
                 ELSE 3
             END
+        """
+        return sql.strip(), params
+
+    def _build_entity_relationship_summary_query(
+        self,
+        plan: QueryPlan,
+        *,
+        import_batch_id: int | None = None,
+        workspace_id: int | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        where_sql, params = self._plan_filters(
+            plan,
+            "t",
+            import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
+        )
+        sql = f"""
+            SELECT
+                NULL AS group_key,
+                ROUND(COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0), 2) AS income_total,
+                ROUND(COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END), 0), 2) AS expense_total,
+                ROUND(COALESCE(SUM(t.amount), 0), 2) AS net_value,
+                COUNT(*) AS transaction_count,
+                CASE
+                    WHEN SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END)
+                         >= SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END)
+                    THEN 'partner'
+                    ELSE 'collaborator'
+                END AS entity_type
+            FROM transactions AS t
+            {where_sql}
+        """
+        return sql.strip(), params
+
+    def _build_entity_relationship_rows_query(
+        self,
+        plan: QueryPlan,
+        *,
+        import_batch_id: int | None = None,
+        workspace_id: int | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        where_sql, params = self._plan_filters(
+            plan,
+            "t",
+            import_batch_id=import_batch_id,
+            workspace_id=workspace_id,
+        )
+        sql = f"""
+            SELECT
+                t.id,
+                t.import_batch_id,
+                t.transaction_date,
+                t.amount,
+                t.currency,
+                t.balance,
+                t.merchant,
+                t.description,
+                t.economic_kind,
+                t.direction,
+                t.entity_type,
+                t.confidence,
+                t.reason,
+                COALESCE(GROUP_CONCAT(ac.name, ','), '') AS category_names,
+                CASE
+                    WHEN COALESCE(t.confidence, 0) >= 0.75 THEN 'classified'
+                    ELSE 'needs_review'
+                END AS review_status
+            FROM transactions AS t
+            LEFT JOIN transaction_category_links AS tcl
+                ON tcl.transaction_id = t.id
+            LEFT JOIN analysis_categories AS ac
+                ON ac.id = tcl.category_id
+            {where_sql}
+            GROUP BY
+                t.id,
+                t.import_batch_id,
+                t.transaction_date,
+                t.amount,
+                t.currency,
+                t.balance,
+                t.merchant,
+                t.description,
+                t.economic_kind,
+                t.direction,
+                t.entity_type,
+                t.confidence,
+                t.reason
+            ORDER BY t.transaction_date DESC, t.id DESC
+            LIMIT {int(plan.limit)}
         """
         return sql.strip(), params
 

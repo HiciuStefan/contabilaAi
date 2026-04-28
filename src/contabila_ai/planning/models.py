@@ -15,6 +15,7 @@ PLANNER_METRICS = (
     "operational_income_estimate",
     "operational_expense_estimate",
     "creditare_vs_recuperare",
+    "entity_relationship_summary",
     "unsupported",
 )
 PLANNER_GROUPINGS = ("year", "half_year")

@@ -128,6 +128,8 @@ class HttpSmokeTest(unittest.TestCase):
                 ],
                 workspace_id=workspace_id,
             )
+            for row in services["store"].list_transactions(workspace_id=workspace_id, limit=10):
+                services["review"].confirm_transaction(int(row["id"]))
 
             handler = partial(ContabilaAiRequestHandler, services=services)
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -162,7 +164,7 @@ class HttpSmokeTest(unittest.TestCase):
             if data_dir.exists():
                 data_dir.rmdir()
 
-    def test_chat_returns_clarify_without_query_rows_for_ambiguous_question(self) -> None:
+    def test_chat_returns_entity_relationship_summary_for_entity_status_question(self) -> None:
         data_dir = ROOT / "test_http_data_chat_clarify"
         if data_dir.exists():
             db_path = data_dir / "contabila_ai.sqlite3"
@@ -178,16 +180,28 @@ class HttpSmokeTest(unittest.TestCase):
                     ImportedTransaction(
                         transaction_date="2025-06-01",
                         description="Incasare proiect",
-                        amount=100.0,
+                        amount=3000.0,
                         currency="RON",
-                        balance=100.0,
+                        balance=3000.0,
                         merchant="AI Excellence SRL",
                         source_file="statement.csv",
-                        raw_payload='{"id":"clarify-1"}',
-                    )
+                        raw_payload='{"id":"relationship-in"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-06-15",
+                        description="Plata subcontractor",
+                        amount=-1000.0,
+                        currency="RON",
+                        balance=2000.0,
+                        merchant="1/AI EXCELLENCE S.R.L.",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"relationship-out"}',
+                    ),
                 ],
                 workspace_id=workspace_id,
             )
+            for row in services["store"].list_transactions(workspace_id=workspace_id, limit=10):
+                services["review"].confirm_transaction(int(row["id"]))
 
             handler = partial(ContabilaAiRequestHandler, services=services)
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -213,10 +227,12 @@ class HttpSmokeTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=5)
 
-            self.assertEqual(payload["plan"]["support_level"], "clarify")
-            self.assertEqual(payload["rows"], [])
-            self.assertEqual(payload["transaction_rows"], [])
-            self.assertIn("nu sunt sigur", payload["answer"].lower())
+            self.assertEqual(payload["plan"]["metric"], "entity_relationship_summary")
+            self.assertEqual(payload["plan"]["support_level"], "exact")
+            self.assertEqual(payload["rows"][0]["income_total"], 3000.0)
+            self.assertEqual(payload["rows"][0]["expense_total"], 1000.0)
+            self.assertEqual(len(payload["transaction_rows"]), 2)
+            self.assertIn("relatia cu ai excellence", payload["answer"].lower())
         finally:
             db_path = data_dir / "contabila_ai.sqlite3"
             if db_path.exists():

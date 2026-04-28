@@ -110,11 +110,11 @@ class PlannerTest(unittest.TestCase):
         self.assertIsNone(plan.analysis_category)
         self.assertIsNone(plan.economic_kind)
 
-    def test_build_query_plan_marks_entity_status_question_for_clarification(self) -> None:
+    def test_build_query_plan_detects_entity_relationship_summary(self) -> None:
         plan = build_query_plan("care e situatia lui Ai Excellence")
 
-        self.assertEqual(plan.metric, "unsupported")
-        self.assertEqual(plan.support_level, "clarify")
+        self.assertEqual(plan.metric, "entity_relationship_summary")
+        self.assertEqual(plan.support_level, "exact")
         self.assertEqual(plan.entity_name, "ai excellence")
 
     def test_build_query_plan_extracts_project_name(self) -> None:
@@ -434,6 +434,56 @@ class PlannerTest(unittest.TestCase):
             self.assertEqual(
                 {row["merchant"] for row in rows},
                 {"AI Excellence SRL", "1/AI EXCELLENCE S.R.L."},
+            )
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_store_execute_plan_returns_entity_relationship_summary(self) -> None:
+        db_path = ROOT / "test_planner_entity_relationship.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-02-10",
+                        description="Incasare AI Excellence sprint 1",
+                        amount=3000.0,
+                        currency="RON",
+                        balance=3000.0,
+                        merchant="AI Excellence SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"ai-in-1"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-03-10",
+                        description="Plata AI Excellence subcontractor",
+                        amount=-1000.0,
+                        currency="RON",
+                        balance=2000.0,
+                        merchant="1/AI EXCELLENCE S.R.L.",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"ai-out-1"}',
+                    ),
+                ]
+            )
+
+            result = store.execute_plan(build_query_plan("care e situatia lui ai excellence"))
+
+            self.assertEqual(
+                result.rows,
+                [
+                    {
+                        "group_key": None,
+                        "income_total": 3000.0,
+                        "expense_total": 1000.0,
+                        "net_value": 2000.0,
+                        "transaction_count": 2,
+                        "entity_type": "partner",
+                    }
+                ],
             )
         finally:
             if db_path.exists():
@@ -907,12 +957,27 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("nu pot calcula", answer.lower())
         self.assertIn("extras", answer.lower())
 
-    def test_render_answer_requests_clarification_for_ambiguous_entity_status_question(self) -> None:
+    def test_render_answer_summarizes_entity_relationship_question(self) -> None:
         plan = build_query_plan("care e situatia lui Ai Excellence")
 
-        answer = render_answer(plan, [])
+        answer = render_answer(
+            plan,
+            [
+                {
+                    "group_key": None,
+                    "income_total": 3000.0,
+                    "expense_total": 1000.0,
+                    "net_value": 2000.0,
+                    "transaction_count": 2,
+                    "entity_type": "partner",
+                }
+            ],
+        )
 
-        self.assertIn("nu sunt sigur", answer.lower())
+        self.assertIn("relatia cu ai excellence", answer.lower())
+        self.assertIn("incasari 3000.0", answer.lower())
+        self.assertIn("plati 1000.0", answer.lower())
+        self.assertIn("net 2000.0", answer.lower())
         self.assertIn("ai excellence", answer.lower())
 
     def test_render_answer_marks_statement_aggregation_as_exact_line_sum(self) -> None:

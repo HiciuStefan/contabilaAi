@@ -797,6 +797,18 @@ def render_answer(plan: Any, rows: list[dict[str, Any]]) -> str:
             "Nu sunt sigur ce vrei sa calculez exact. "
             "Pot sa raspund corect daca imi ceri mai specific incasari, plati, net sau tranzactii."
         )
+    if getattr(plan, "metric", "") == "entity_relationship_summary":
+        if not rows:
+            entity_name = getattr(plan, "entity_name", "entitatea ceruta")
+            return f"Nu am gasit tranzactii pentru relatia cu {entity_name}."
+        row = rows[0]
+        entity_name = getattr(plan, "entity_name", "entitatea ceruta")
+        entity_type = row.get("entity_type") or "necunoscut"
+        return (
+            f"Relatia cu {entity_name}: incasari {row.get('income_total', 0)}, "
+            f"plati {row.get('expense_total', 0)}, net {row.get('net_value', 0)}. "
+            f"Tip entitate observat: {entity_type}."
+        )
     if getattr(plan, "support_level", "exact") == "unsupported":
         return (
             f"Nu pot calcula {getattr(plan, 'metric_label', 'aceasta metrica')} exact doar din extrasul bancar. "

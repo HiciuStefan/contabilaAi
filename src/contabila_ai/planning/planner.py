@@ -223,9 +223,9 @@ def _detect_metric(question: str, direction: str, requested_profit: bool) -> str
 def _detect_metric_info(question: str, requested_profit: bool) -> dict[str, object]:
     if _is_ambiguous_entity_summary_question(question):
         return {
-            "metric": "unsupported",
+            "metric": "entity_relationship_summary",
             "label": "situatia relatiei",
-            "support_level": "clarify",
+            "support_level": "exact",
             "excluded_economic_kinds": [],
         }
 
@@ -388,6 +388,7 @@ def _default_metric_label(metric: str) -> str:
         "invoice_residual_total": "sold facturi primite",
         "total_amount": "suma",
         "creditare_vs_recuperare": "creditare si recuperare creditare",
+        "entity_relationship_summary": "situatia relatiei",
     }
     return labels.get(metric, "suma")
 
