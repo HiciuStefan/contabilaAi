@@ -582,11 +582,14 @@ This is still not the final target product, but it is now well beyond a generic 
 The major gaps between the current implementation and the intended full product are:
 
 - project support exists in planner and business facts, but not yet as a full first-class editing UI
-- business memory parsing is still deterministic and intentionally narrow
-- invoice matching now supports one-to-one, installments, and one-payment-to-multiple-invoices,
-  but still needs deeper many-to-many balancing heuristics across longer payment timelines
+- business memory parsing is now broader and supports semantic category-rule hints,
+  but it is still deterministic and should evolve into validated model-assisted extraction later
+- invoice matching now supports one-to-one, installments, one-payment-to-multiple-invoices,
+  and delayed bundle settlements, but still needs deeper many-to-many balancing heuristics across longer payment timelines
 - change review is implemented for category proposals, but not yet for the full field matrix
 - invoice hub and matching are now visible in the workspace UI, but still need deeper analytics and operator tooling
+- relationship summary questions now return entity-level receipts, payments, and net,
+  but they still need richer project/category breakdowns and stronger role inference
 
 ## 15. Architecture Direction
 
@@ -664,10 +667,11 @@ Use deterministic code for:
 
 ### Phase 2
 
-- installment and many-to-many matching
+- validated semantic business memory parsing and review proposals
+- delayed bundle settlement matching beyond short windows
+- stronger relationship-aware planner answers
 - stronger project-aware analytics
 - deeper memory editing and rule management
-- full onboarding wizard experience
 
 ## 20. Operational Notes
 

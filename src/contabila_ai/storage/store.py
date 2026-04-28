@@ -787,7 +787,7 @@ class SQLiteTransactionStore:
                 WHERE ib.workspace_id = ?
                   AND im.id IS NULL
                   AND t.amount < 0
-                ORDER BY t.transaction_date ASC, t.id ASC
+                ORDER BY ABS(t.amount) DESC, t.transaction_date ASC, t.id ASC
                 """,
                 (int(workspace_id),),
             ).fetchall()
@@ -1202,10 +1202,21 @@ class SQLiteTransactionStore:
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 f"""
-                SELECT id, merchant, description, confidence, reason
-                FROM transactions
-                WHERE id IN ({placeholders})
-                ORDER BY id ASC
+                SELECT
+                    t.id,
+                    t.merchant,
+                    t.description,
+                    t.confidence,
+                    t.reason,
+                    COALESCE(GROUP_CONCAT(ac.name, ','), '') AS category_names
+                FROM transactions AS t
+                LEFT JOIN transaction_category_links AS tcl
+                    ON tcl.transaction_id = t.id
+                LEFT JOIN analysis_categories AS ac
+                    ON ac.id = tcl.category_id
+                WHERE t.id IN ({placeholders})
+                GROUP BY t.id, t.merchant, t.description, t.confidence, t.reason
+                ORDER BY t.id ASC
                 """,
                 tuple(resolved_ids),
             ).fetchall()

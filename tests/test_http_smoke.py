@@ -128,8 +128,6 @@ class HttpSmokeTest(unittest.TestCase):
                 ],
                 workspace_id=workspace_id,
             )
-            for row in services["store"].list_transactions(workspace_id=workspace_id, limit=10):
-                services["review"].confirm_transaction(int(row["id"]))
 
             handler = partial(ContabilaAiRequestHandler, services=services)
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)

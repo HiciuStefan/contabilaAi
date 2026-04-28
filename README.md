@@ -7,11 +7,12 @@ ContabilaAi is a local-first finance copilot for importing bank statements and i
 This repository already ships the current workspace architecture:
 - named company workspaces
 - review severity and query gate
-- business memory instructions
+- semantic business memory instructions with structured facts and category-rule proposals
 - workspace invoice hub
-- phase 1 invoice matching
+- invoice matching with installments, split settlements, and delayed bundle heuristics
 - change review workflow
 - guided onboarding flow for `home -> onboarding -> ready`
+- relationship summary questions such as `care e situatia lui ai excellence`
 
 ## Run locally
 
