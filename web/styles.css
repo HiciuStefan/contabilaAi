@@ -104,12 +104,14 @@ body {
 }
 
 input,
+textarea,
 select,
 button {
   font: inherit;
 }
 
 input,
+textarea,
 select {
   width: 100%;
   padding: 13px 14px;
@@ -117,6 +119,11 @@ select {
   border: 1px solid var(--line);
   background: var(--panel-strong);
   color: var(--ink);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 140px;
 }
 
 button {
@@ -144,6 +151,13 @@ button:hover {
 .button-secondary {
   background: linear-gradient(135deg, #7b3f2f, #5e2f24);
   box-shadow: 0 12px 24px rgba(123, 63, 47, 0.22);
+}
+
+.button-ghost {
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  border: 1px solid rgba(18, 104, 92, 0.16);
+  box-shadow: none;
 }
 
 .modal {
@@ -460,6 +474,10 @@ button:hover {
   margin-top: 22px;
 }
 
+.tab-panel {
+  animation: panel-fade 180ms ease;
+}
+
 .workspace-tab {
   margin-top: 0;
   background: rgba(255, 255, 255, 0.78);
@@ -490,6 +508,32 @@ button:hover {
 
 .onboarding-step p {
   margin: 8px 0 0;
+}
+
+.step-status {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 249, 239, 0.8);
+  border: 1px solid rgba(30, 36, 48, 0.08);
+  color: var(--ink);
+}
+
+.onboarding-checklist.is-ready .onboarding-step {
+  border-color: rgba(13, 107, 93, 0.28);
+  box-shadow: 0 14px 28px rgba(13, 107, 93, 0.08);
+}
+
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .workspace-chip {

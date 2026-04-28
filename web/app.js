@@ -6,7 +6,7 @@ const workspaceHome = document.getElementById("workspace-home");
 const onboardingWizard = document.getElementById("onboarding-wizard");
 const onboardingStatus = document.getElementById("onboarding-status");
 const workspaceApp = document.getElementById("workspace-app");
-const businessMemoryPanel = document.getElementById("business-memory-panel");
+const onboardingChecklist = document.getElementById("onboarding-checklist");
 const uploadPathInput = document.getElementById("upload-path");
 const uploadFileInput = document.getElementById("upload-file");
 const uploadButton = document.getElementById("upload-button");
@@ -15,6 +15,7 @@ const uploadCancelButton = document.getElementById("upload-cancel-button");
 const importDialog = document.getElementById("import-dialog");
 const resetButton = document.getElementById("reset-button");
 const uploadResult = document.getElementById("upload-result");
+const invoiceRoleSelect = document.getElementById("invoice-role");
 const invoicePathInput = document.getElementById("invoice-path");
 const invoiceUploadButton = document.getElementById("invoice-upload-button");
 const invoiceUploadResult = document.getElementById("invoice-upload-result");
@@ -34,17 +35,42 @@ const transactionsList = document.getElementById("transactions-list");
 const txMinAmountInput = document.getElementById("tx-min-amount");
 const txDirectionSelect = document.getElementById("tx-direction");
 const txSearchInput = document.getElementById("tx-search");
+const invoicesRefreshButton = document.getElementById("invoices-refresh");
+const invoicesSummary = document.getElementById("invoices-summary");
+const invoicesList = document.getElementById("invoices-list");
+const matchesList = document.getElementById("matches-list");
+const businessMemoryForm = document.getElementById("business-memory-form");
+const businessMemoryInput = document.getElementById("business-memory-input");
+const businessMemorySubmit = document.getElementById("business-memory-submit");
+const businessMemoryResult = document.getElementById("business-memory-result");
+const businessMemoryRefreshButton = document.getElementById("business-memory-refresh");
+const businessMemoryFacts = document.getElementById("business-memory-facts");
+const changeReviewRefreshButton = document.getElementById("change-review-refresh");
+const changeReviewList = document.getElementById("change-review-list");
+const workspaceTabs = Array.from(document.querySelectorAll(".workspace-tab"));
+const tabPanels = Array.from(document.querySelectorAll("[data-tab-panel]"));
 
 let activeImportId = null;
 let currentWorkspaceId = null;
+let currentWorkspace = null;
 let currentWorkspaceName = null;
+let currentTab = "questions";
 let knownCategories = [];
 
 function setWorkspaceView(mode) {
   workspaceHome.hidden = mode !== "home";
-  onboardingWizard.hidden = mode !== "onboarding";
-  workspaceApp.hidden = mode !== "app";
-  businessMemoryPanel.hidden = mode !== "app";
+  onboardingWizard.hidden = mode !== "guided";
+  workspaceApp.hidden = mode === "home";
+}
+
+function setActiveTab(tabName) {
+  currentTab = tabName;
+  workspaceTabs.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.tab === tabName);
+  });
+  tabPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.tabPanel !== tabName;
+  });
 }
 
 function syncWorkspaceView(workspace) {
@@ -53,11 +79,12 @@ function syncWorkspaceView(workspace) {
     return;
   }
   if (workspace.status === "ready") {
+    onboardingStatus.textContent = `Firma ${workspace.name} este pregatita. Poti lucra direct in workspace si poti pune intrebari.`;
     setWorkspaceView("app");
     return;
   }
-  onboardingStatus.textContent = `Firma ${workspace.name} este in starea ${workspace.status}. Continua cu importul, instructiunile de business si review-ul important.`;
-  setWorkspaceView("onboarding");
+  onboardingStatus.textContent = `Firma ${workspace.name} este in starea ${workspace.status}. Continua cu importul, instructiunile de business si review-ul important inainte de intrebari serioase.`;
+  setWorkspaceView("guided");
 }
 
 async function requestJson(url, options = {}) {
@@ -90,16 +117,57 @@ async function requestFileUpload(file, workspaceId = currentWorkspaceId) {
 }
 
 function setEmptySessionState(message) {
+  importMeta.textContent = message;
   summaryBox.textContent = "Niciun import activ.";
   reviewList.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+  categoriesList.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+  transactionsList.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+  invoicesList.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+  matchesList.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+  changeReviewList.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
   answerBox.textContent = "Raspunsul apare aici.";
   chatRows.innerHTML = '<p class="muted">Selecteaza sau importa un extras pentru a porni sesiunea.</p>';
+}
+
+function currentReviewCounts() {
+  return currentWorkspace && currentWorkspace.review_counts
+    ? currentWorkspace.review_counts
+    : { critical: 0, high: 0, medium: 0, low: 0 };
+}
+
+function updateOnboardingChecklist(extra = {}) {
+  if (!currentWorkspace) {
+    return;
+  }
+  const importCount = Number(currentWorkspace.import_count || 0);
+  const factCount = Number(extra.factCount || 0);
+  const changeCount = Number(extra.changeReviewCount || 0);
+  const invoiceCount = Number(extra.invoiceCount || 0);
+  const reviewCounts = currentReviewCounts();
+
+  document.querySelector('[data-step-status="imports"]').textContent = importCount
+    ? `${importCount} importuri active. ${invoiceCount} facturi inregistrate.`
+    : "Fara importuri inca.";
+  document.querySelector('[data-step-status="memory"]').textContent = factCount
+    ? `${factCount} fapte de business salvate.`
+    : "Nicio instructiune salvata inca.";
+  document.querySelector('[data-step-status="review"]').textContent = `Critical ${reviewCounts.critical || 0}, high ${reviewCounts.high || 0}, medium ${reviewCounts.medium || 0}, low ${reviewCounts.low || 0}.`;
+  document.querySelector('[data-step-status="change-review"]').textContent = changeCount
+    ? `${changeCount} schimbari propuse asteapta o decizie.`
+    : "Nicio schimbare propusa.";
+
+  onboardingChecklist.classList.toggle(
+    "is-ready",
+    currentWorkspace.status === "ready" || ((reviewCounts.critical || 0) === 0 && (reviewCounts.high || 0) === 0 && importCount > 0)
+  );
 }
 
 function renderWorkspaceList(items) {
   if (!items.length) {
     workspaceList.innerHTML = '<p class="muted">Nu exista inca firme salvate. Creeaza prima firma mai sus.</p>';
     workspaceCurrent.textContent = "Nicio firma selectata inca.";
+    currentWorkspace = null;
+    currentWorkspaceName = null;
     syncWorkspaceView(null);
     return;
   }
@@ -120,6 +188,7 @@ function renderWorkspaceList(items) {
   const active = items.find((item) => Number(item.id) === currentWorkspaceId) || items[0];
   currentWorkspaceId = Number(active.id);
   currentWorkspaceName = active.name;
+  currentWorkspace = active;
   workspaceCurrent.textContent = `Firma activa: ${active.name} (${active.status})`;
   syncWorkspaceView(active);
 }
@@ -133,7 +202,6 @@ async function loadWorkspaces(preferredWorkspaceId = currentWorkspaceId) {
     currentWorkspaceId = Number(items[0].id);
   } else {
     currentWorkspaceId = null;
-    currentWorkspaceName = null;
   }
   renderWorkspaceList(items);
   return items;
@@ -142,7 +210,6 @@ async function loadWorkspaces(preferredWorkspaceId = currentWorkspaceId) {
 async function loadImports(selectedImportId = activeImportId) {
   if (currentWorkspaceId === null) {
     importSelect.innerHTML = '<option value="">Niciun import selectat</option>';
-    importMeta.textContent = "Creeaza sau alege mai intai o firma.";
     setEmptySessionState("Creeaza sau alege mai intai o firma.");
     return [];
   }
@@ -165,16 +232,14 @@ async function loadImports(selectedImportId = activeImportId) {
     importMeta.textContent = imports.length
       ? "Exista importuri salvate, dar niciunul nu este activ. Selecteaza unul sau importa un extras nou."
       : "Nu exista inca importuri salvate. Importa un extras nou pentru a crea o sesiune.";
-    setEmptySessionState("Niciun import activ.");
     return imports;
   }
 
-  const activeImport = imports.find((item) => item.id === activeImportId);
+  const activeImport = imports.find((item) => Number(item.id) === activeImportId);
   if (!activeImport) {
     activeImportId = null;
     importSelect.value = "";
     importMeta.textContent = "Importul selectat nu mai exista. Alege altul sau importa din nou.";
-    setEmptySessionState("Importul selectat nu mai exista.");
     return imports;
   }
 
@@ -186,6 +251,35 @@ async function loadCategories() {
   const payload = await requestJson("/api/categories");
   knownCategories = payload.categories || [];
   return knownCategories;
+}
+
+async function loadSummary() {
+  if (currentWorkspaceId === null) {
+    summaryBox.textContent = "Nicio firma activa.";
+    return;
+  }
+  const params = new URLSearchParams();
+  params.set("workspace_id", String(currentWorkspaceId));
+  if (activeImportId !== null) {
+    params.set("import_id", String(activeImportId));
+  }
+  const payload = await requestJson(`/api/summary?${params.toString()}`);
+  summaryBox.textContent = JSON.stringify(payload, null, 2);
+}
+
+async function loadReview() {
+  if (currentWorkspaceId === null) {
+    reviewList.innerHTML = '<p class="muted">Selecteaza o firma pentru review.</p>';
+    return;
+  }
+  const params = new URLSearchParams();
+  params.set("workspace_id", String(currentWorkspaceId));
+  if (activeImportId !== null) {
+    params.set("import_id", String(activeImportId));
+  }
+  const payload = await requestJson(`/api/review?${params.toString()}`);
+  await loadCategories();
+  renderReviewGroups(payload.groups || []);
 }
 
 async function loadCategoryCatalog() {
@@ -210,14 +304,14 @@ async function loadCategoryCatalog() {
         ...category,
         rows: payload.rows || [],
       };
-    })
+    }),
   );
   renderCategoryCatalog(categoryRows);
 }
 
-async function loadSummary() {
+async function loadTransactions() {
   if (currentWorkspaceId === null) {
-    summaryBox.textContent = "Nicio firma activa.";
+    transactionsList.innerHTML = '<p class="muted">Selecteaza o firma pentru registrul de tranzactii.</p>';
     return;
   }
   const params = new URLSearchParams();
@@ -225,8 +319,92 @@ async function loadSummary() {
   if (activeImportId !== null) {
     params.set("import_id", String(activeImportId));
   }
-  const payload = await requestJson(`/api/summary?${params.toString()}`);
-  summaryBox.textContent = JSON.stringify(payload, null, 2);
+  params.set("limit", "100");
+  if (txMinAmountInput.value.trim()) {
+    params.set("min_abs_amount", txMinAmountInput.value.trim());
+  }
+  if (txDirectionSelect.value) {
+    params.set("direction", txDirectionSelect.value);
+  }
+  if (txSearchInput.value.trim()) {
+    params.set("search", txSearchInput.value.trim());
+  }
+  const payload = await requestJson(`/api/transactions?${params.toString()}`);
+  renderTransactions(payload.rows || []);
+}
+
+async function loadBusinessMemory() {
+  if (currentWorkspaceId === null) {
+    businessMemoryFacts.innerHTML = '<p class="muted">Selecteaza o firma pentru business memory.</p>';
+    return 0;
+  }
+  const payload = await requestJson(`/api/business-memory?workspace_id=${encodeURIComponent(currentWorkspaceId)}`);
+  renderBusinessMemoryFacts(payload.facts || []);
+  return (payload.facts || []).length;
+}
+
+async function loadInvoices() {
+  if (currentWorkspaceId === null) {
+    invoicesSummary.textContent = "Selecteaza o firma pentru facturi.";
+    invoicesList.innerHTML = '<p class="muted">Selecteaza o firma pentru facturi.</p>';
+    return 0;
+  }
+  const [issued, received] = await Promise.all([
+    requestJson(`/api/invoices?workspace_id=${encodeURIComponent(currentWorkspaceId)}&role=issued`),
+    requestJson(`/api/invoices?workspace_id=${encodeURIComponent(currentWorkspaceId)}&role=received`),
+  ]);
+  const items = [
+    ...(issued.items || []).map((item) => ({ ...item, role_label: "emise" })),
+    ...(received.items || []).map((item) => ({ ...item, role_label: "primite" })),
+  ];
+  renderInvoices(items);
+  invoicesSummary.textContent = items.length
+    ? `${issued.items.length} facturi emise, ${received.items.length} facturi primite in firma curenta.`
+    : "Nu exista inca facturi in firma curenta.";
+  return items.length;
+}
+
+async function loadInvoiceMatches() {
+  if (currentWorkspaceId === null) {
+    matchesList.innerHTML = '<p class="muted">Selecteaza o firma pentru matching.</p>';
+    return;
+  }
+  try {
+    const payload = await requestJson(`/api/invoice-matches?workspace_id=${encodeURIComponent(currentWorkspaceId)}`);
+    renderInvoiceMatches(payload.items || []);
+  } catch (error) {
+    matchesList.innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function loadChangeReview() {
+  if (currentWorkspaceId === null) {
+    changeReviewList.innerHTML = '<p class="muted">Selecteaza o firma pentru change review.</p>';
+    return 0;
+  }
+  const payload = await requestJson(`/api/change-review?workspace_id=${encodeURIComponent(currentWorkspaceId)}`);
+  renderChangeReviewItems(payload.items || []);
+  return (payload.items || []).length;
+}
+
+async function refreshWorkspaceData() {
+  await loadWorkspaces(currentWorkspaceId);
+  await loadImports(activeImportId);
+  if (currentWorkspaceId === null) {
+    setEmptySessionState("Creeaza sau alege mai intai o firma.");
+    return;
+  }
+  await loadSummary();
+  await loadReview();
+  await loadCategoryCatalog();
+  await loadTransactions();
+  const [factCount, invoiceCount, changeReviewCount] = await Promise.all([
+    loadBusinessMemory(),
+    loadInvoices(),
+    loadChangeReview(),
+  ]);
+  await loadInvoiceMatches();
+  updateOnboardingChecklist({ factCount, invoiceCount, changeReviewCount });
 }
 
 function renderChatRows(rows) {
@@ -261,66 +439,8 @@ function renderChatRows(rows) {
   chatRows.innerHTML = `
     <details class="chat-results-panel">
       <summary>Vezi tranzactiile (${rows.length})</summary>
-      <div class="chat-result-list">
-        ${items}
-      </div>
+      <div class="chat-result-list">${items}</div>
     </details>
-  `;
-}
-
-function renderReviewRows(rows) {
-  if (!rows.length) {
-    reviewList.innerHTML = '<p class="muted">Nu exista candidati de review pentru importul activ.</p>';
-    return;
-  }
-
-  reviewList.innerHTML = rows.map((row) => {
-    const categories = row.analysis_categories && row.analysis_categories.length
-      ? `<p class="muted">Categorii: ${escapeHtml(row.analysis_categories.join(", "))}</p>`
-      : '<p class="muted">Categorii: niciuna</p>';
-
-    return `
-      <article class="review-item">
-        <div class="review-main">
-          <div class="review-topline">
-            <strong>${escapeHtml(row.description)}</strong>
-            <span>${escapeHtml(String(row.amount))} ${escapeHtml(row.currency || "RON")}</span>
-          </div>
-          <div class="review-meta">
-            <span>${escapeHtml(row.transaction_date)}</span>
-            <span>${escapeHtml(row.merchant || "Fara merchant")}</span>
-            <span>confidence ${escapeHtml(String(row.confidence))}</span>
-          </div>
-          <p class="muted">${escapeHtml(row.reason || "Fara explicatie")}</p>
-          ${categories}
-        </div>
-        <div class="review-actions">
-          <input id="category-${row.id}" type="text" placeholder="Scrie categoria">
-          <button type="button" data-action="category" data-id="${row.id}">Adauga categoria</button>
-          <button type="button" data-action="confirm" data-id="${row.id}">Marcheaza corect</button>
-        </div>
-      </article>
-    `;
-  }).join("");
-}
-
-function categoryControlHtml(prefix, group) {
-  const suggested = group.suggested_category || "";
-  const options = [
-    '<option value="">Alege categoria</option>',
-    ...knownCategories.map((category) => {
-      const selected = category.name === suggested ? " selected" : "";
-      return `<option value="${escapeHtml(category.name)}"${selected}>${escapeHtml(category.name)}</option>`;
-    }),
-    '<option value="__new__">Creeaza categorie noua...</option>',
-  ].join("");
-  const hint = suggested ? `<p class="muted">Sugestie: ${escapeHtml(suggested)}</p>` : "";
-  return `
-    <select id="${prefix}-select-${escapeHtml(group.group_key)}" class="category-select">
-      ${options}
-    </select>
-    <input id="${prefix}-new-${escapeHtml(group.group_key)}" class="category-new-input" type="text" placeholder="Nume categorie noua" hidden>
-    ${hint}
   `;
 }
 
@@ -352,11 +472,7 @@ function renderReviewGroups(groups) {
         <div class="review-main">
           <div class="review-topline">
             <label class="review-select-label">
-              <input
-                type="checkbox"
-                class="review-group-checkbox"
-                data-ids="${escapeHtml((group.transaction_ids || []).join(","))}"
-              >
+              <input type="checkbox" class="review-group-checkbox" data-ids="${escapeHtml((group.transaction_ids || []).join(","))}">
               <strong>${escapeHtml(group.group_label || "Tranzactii similare")}</strong>
             </label>
             <span>${escapeHtml(String(group.transaction_count))} tranzactii</span>
@@ -370,12 +486,7 @@ function renderReviewGroups(groups) {
         </div>
         <div class="review-actions">
           ${categoryControlHtml("category-group", group)}
-          <button
-            type="button"
-            data-action="category-group"
-            data-group-key="${escapeHtml(group.group_key)}"
-            data-ids="${escapeHtml((group.transaction_ids || []).join(","))}"
-          >Aplica categoria</button>
+          <button type="button" data-action="category-group" data-group-key="${escapeHtml(group.group_key)}" data-ids="${escapeHtml((group.transaction_ids || []).join(","))}">Aplica categoria</button>
         </div>
       </article>
     `;
@@ -394,6 +505,24 @@ function renderReviewGroups(groups) {
       </div>
     </div>
     ${groupHtml}
+  `;
+}
+
+function categoryControlHtml(prefix, group) {
+  const suggested = group.suggested_category || "";
+  const options = [
+    '<option value="">Alege categoria</option>',
+    ...knownCategories.map((category) => {
+      const selected = category.name === suggested ? " selected" : "";
+      return `<option value="${escapeHtml(category.name)}"${selected}>${escapeHtml(category.name)}</option>`;
+    }),
+    '<option value="__new__">Creeaza categorie noua...</option>',
+  ].join("");
+  const hint = suggested ? `<p class="muted">Sugestie: ${escapeHtml(suggested)}</p>` : "";
+  return `
+    <select id="${prefix}-select-${escapeHtml(group.group_key)}" class="category-select">${options}</select>
+    <input id="${prefix}-new-${escapeHtml(group.group_key)}" class="category-new-input" type="text" placeholder="Nume categorie noua" hidden>
+    ${hint}
   `;
 }
 
@@ -440,9 +569,7 @@ function renderCategoryCatalog(categories) {
           </label>
           <label class="field">
             <span>Tip categorie</span>
-            <select id="category-scope-${escapeHtml(category.id)}">
-              ${renderOperationalScopeOptions(category.operational_scope)}
-            </select>
+            <select id="category-scope-${escapeHtml(category.id)}">${renderOperationalScopeOptions(category.operational_scope)}</select>
           </label>
           <button type="button" data-action="save-category-meta" data-category-name="${escapeHtml(category.name)}" data-category-id="${escapeHtml(category.id)}">Salveaza categoria</button>
         </div>
@@ -464,30 +591,6 @@ function renderCategoryCatalog(categories) {
       </details>
     `;
   }).join("");
-}
-
-async function loadTransactions() {
-  if (currentWorkspaceId === null) {
-    transactionsList.innerHTML = '<p class="muted">Selecteaza o firma pentru registrul de tranzactii.</p>';
-    return;
-  }
-  const params = new URLSearchParams();
-  params.set("workspace_id", String(currentWorkspaceId));
-  if (activeImportId !== null) {
-    params.set("import_id", String(activeImportId));
-  }
-  params.set("limit", "100");
-  if (txMinAmountInput.value.trim()) {
-    params.set("min_abs_amount", txMinAmountInput.value.trim());
-  }
-  if (txDirectionSelect.value) {
-    params.set("direction", txDirectionSelect.value);
-  }
-  if (txSearchInput.value.trim()) {
-    params.set("search", txSearchInput.value.trim());
-  }
-  const payload = await requestJson(`/api/transactions?${params.toString()}`);
-  renderTransactions(payload.rows || []);
 }
 
 function renderTransactions(rows) {
@@ -515,6 +618,7 @@ function renderTransactions(rows) {
       </tr>
     `;
   }).join("");
+
   transactionsList.innerHTML = `
     <div class="transactions-table-wrap">
       <table class="transactions-table">
@@ -535,6 +639,101 @@ function renderTransactions(rows) {
       </table>
     </div>
   `;
+}
+
+function renderInvoices(items) {
+  if (!items.length) {
+    invoicesList.innerHTML = '<p class="muted">Nu exista inca facturi in workspace-ul curent.</p>';
+    return;
+  }
+  invoicesList.innerHTML = items.map((item) => `
+    <article class="review-item">
+      <div class="review-main">
+        <div class="review-topline">
+          <strong>${escapeHtml(item.invoice_number || "Factura fara numar")}</strong>
+          <span>${escapeHtml(formatAmount(item.total_amount || 0, item.currency || "RON"))}</span>
+        </div>
+        <div class="review-meta">
+          <span>${escapeHtml(item.role_label)}</span>
+          <span>${escapeHtml(item.issue_date || "-")}</span>
+          <span>${escapeHtml(item.counterparty_name || "Fara contraparte")}</span>
+        </div>
+        <p class="muted">Status factura: ${escapeHtml(item.status || "necunoscut")}</p>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderInvoiceMatches(items) {
+  if (!items.length) {
+    matchesList.innerHTML = '<p class="muted">Nu exista inca matching-uri salvate pentru firma curenta.</p>';
+    return;
+  }
+  matchesList.innerHTML = items.map((item) => `
+    <article class="review-item">
+      <div class="review-main">
+        <div class="review-topline">
+          <strong>${escapeHtml(item.invoice_number || "Factura")}</strong>
+          <span>${escapeHtml(String(item.match_kind || "match"))}</span>
+        </div>
+        <div class="review-meta">
+          <span>${escapeHtml(item.counterparty_name || item.merchant || "Fara contraparte")}</span>
+          <span>${escapeHtml(String(item.status || "proposed"))}</span>
+          <span>confidence ${escapeHtml(String(item.confidence || 0))}</span>
+        </div>
+        <p class="muted">Potrivire: ${escapeHtml(formatAmount(item.matched_amount || 0, item.currency || "RON"))}. Rest: ${escapeHtml(formatAmount(item.residual_amount || 0, item.currency || "RON"))}.</p>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderBusinessMemoryFacts(facts) {
+  if (!facts.length) {
+    businessMemoryFacts.innerHTML = '<p class="muted">Nu exista inca fapte salvate.</p>';
+    return;
+  }
+  businessMemoryFacts.innerHTML = facts.map((fact) => `
+    <article class="review-item">
+      <div class="review-main">
+        <div class="review-topline">
+          <strong>${escapeHtml(fact.subject_name || "workspace")}</strong>
+          <span>${escapeHtml(fact.fact_type || "fact")}</span>
+        </div>
+        <div class="review-meta">
+          <span>${escapeHtml(fact.fact_value || "-")}</span>
+          <span>${escapeHtml(fact.status || "accepted")}</span>
+          <span>confidence ${escapeHtml(String(fact.confidence || 1))}</span>
+        </div>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderChangeReviewItems(items) {
+  if (!items.length) {
+    changeReviewList.innerHTML = '<p class="muted">Nu exista schimbari propuse in acest moment.</p>';
+    return;
+  }
+  changeReviewList.innerHTML = items.map((item) => `
+    <article class="review-item">
+      <div class="review-main">
+        <div class="review-topline">
+          <strong>${escapeHtml(item.field_name || "schimbare")}</strong>
+          <span>${escapeHtml(item.status || "pending")}</span>
+        </div>
+        <div class="review-meta">
+          <span>vechi: ${escapeHtml(item.old_value || "-")}</span>
+          <span>nou: ${escapeHtml(item.new_value || "-")}</span>
+          <span>confidence ${escapeHtml(String(item.confidence || 0))}</span>
+        </div>
+        <p class="muted">${escapeHtml(item.reason || "Fara motiv explicit")}</p>
+      </div>
+      <div class="review-actions">
+        <button type="button" data-action="change-review-decision" data-decision="accept" data-id="${item.id}">Accepta</button>
+        <button type="button" class="button-secondary" data-action="change-review-decision" data-decision="reject" data-id="${item.id}">Respinge</button>
+      </div>
+    </article>
+  `).join("");
 }
 
 function prettyEntityType(value) {
@@ -608,22 +807,30 @@ function formatAmount(amount, currency) {
   return `${numeric.toFixed(2)} ${currency}`;
 }
 
-async function loadReview() {
-  if (activeImportId === null) {
-    reviewList.innerHTML = '<p class="muted">Alege un import activ pentru review.</p>';
-    return;
-  }
-  const params = new URLSearchParams();
-  params.set("workspace_id", String(currentWorkspaceId));
-  if (activeImportId !== null) {
-    params.set("import_id", String(activeImportId));
-  }
-  const payload = await requestJson(`/api/review?${params.toString()}`);
-  await loadCategories();
-  renderReviewGroups(payload.groups || []);
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-uploadButton.addEventListener("click", async () => {
+workspaceTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    setActiveTab(button.dataset.tab);
+  });
+});
+
+onboardingWizard.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-open-tab]");
+  if (!button) {
+    return;
+  }
+  setActiveTab(button.dataset.openTab);
+});
+
+uploadButton.addEventListener("click", () => {
   importDialog.showModal();
 });
 
@@ -653,7 +860,7 @@ uploadConfirmButton.addEventListener("click", async () => {
           body: JSON.stringify({ path, workspace_id: currentWorkspaceId }),
         });
     if (payload.document_type === "issued_invoices") {
-      uploadResult.textContent = `Facturi importate: ${payload.result.inserted}. Sarite: ${payload.result.skipped}. Total net facturi: ${payload.invoice_summary.net_revenue} RON.`;
+      uploadResult.textContent = `Facturi importate: ${payload.result.inserted}. Sarite: ${payload.result.skipped}.`;
     } else {
       activeImportId = payload.active_import_id || null;
       uploadResult.textContent = `Import reusit. Batch activ: ${activeImportId}. ${payload.imported_count} tranzactii citite.`;
@@ -661,12 +868,7 @@ uploadConfirmButton.addEventListener("click", async () => {
     uploadFileInput.value = "";
     uploadPathInput.value = "";
     importDialog.close();
-    await loadImports(activeImportId);
-    await loadCategories();
-    await loadSummary();
-    await loadReview();
-    await loadCategoryCatalog();
-    await loadTransactions();
+    await refreshWorkspaceData();
   } catch (error) {
     uploadResult.textContent = error.message;
   } finally {
@@ -681,16 +883,22 @@ invoiceUploadButton.addEventListener("click", async () => {
   }
   const path = invoicePathInput.value.trim();
   if (!path) {
-    invoiceUploadResult.textContent = "Introdu o cale reala catre un fisier PDF, JSON sau CSV cu facturi emise.";
+    invoiceUploadResult.textContent = "Introdu o cale reala catre un fisier PDF, JSON sau CSV cu facturi.";
     return;
   }
 
   try {
     const payload = await requestJson("/api/invoices/upload", {
       method: "POST",
-      body: JSON.stringify({ path, workspace_id: currentWorkspaceId }),
+      body: JSON.stringify({
+        path,
+        workspace_id: currentWorkspaceId,
+        role: invoiceRoleSelect.value,
+      }),
     });
-    invoiceUploadResult.textContent = `Facturi importate: ${payload.result.inserted}. Sarite: ${payload.result.skipped}. Total net facturi: ${payload.invoice_summary.net_revenue} RON.`;
+    invoiceUploadResult.textContent = `Facturi importate: ${payload.result.inserted}. Matching nou: ${(payload.matches || []).length}. Change review: ${(payload.change_review_items || []).length}.`;
+    await refreshWorkspaceData();
+    setActiveTab("invoices");
   } catch (error) {
     invoiceUploadResult.textContent = error.message;
   }
@@ -701,19 +909,14 @@ resetButton.addEventListener("click", async () => {
     return;
   }
   try {
-    await requestJson("/api/reset", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
+    await requestJson("/api/reset", { method: "POST", body: JSON.stringify({}) });
     activeImportId = null;
     uploadFileInput.value = "";
     uploadPathInput.value = "";
     invoicePathInput.value = "";
     uploadResult.textContent = "Toate datele salvate au fost sterse.";
-    invoiceUploadResult.textContent = "Facturile emise salvate au fost sterse.";
-    await loadImports(null);
-    await loadCategories();
-    categoriesList.innerHTML = '<p class="muted">Nu exista inca nicio categorie salvata.</p>';
+    invoiceUploadResult.textContent = "Facturile salvate au fost sterse.";
+    await refreshWorkspaceData();
   } catch (error) {
     uploadResult.textContent = error.message;
   }
@@ -722,11 +925,7 @@ resetButton.addEventListener("click", async () => {
 importSelect.addEventListener("change", async () => {
   activeImportId = importSelect.value ? Number(importSelect.value) : null;
   try {
-    await loadImports(activeImportId);
-    await loadSummary();
-    await loadReview();
-    await loadCategoryCatalog();
-    await loadTransactions();
+    await refreshWorkspaceData();
   } catch (error) {
     answerBox.textContent = error.message;
   }
@@ -777,48 +976,71 @@ categoriesRefreshButton.addEventListener("click", async () => {
   }
 });
 
+invoicesRefreshButton.addEventListener("click", async () => {
+  try {
+    await loadInvoices();
+    await loadInvoiceMatches();
+  } catch (error) {
+    invoicesSummary.textContent = error.message;
+  }
+});
+
+businessMemoryRefreshButton.addEventListener("click", async () => {
+  try {
+    const factCount = await loadBusinessMemory();
+    updateOnboardingChecklist({ factCount });
+  } catch (error) {
+    businessMemoryFacts.innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  }
+});
+
+changeReviewRefreshButton.addEventListener("click", async () => {
+  try {
+    const changeReviewCount = await loadChangeReview();
+    updateOnboardingChecklist({ changeReviewCount });
+  } catch (error) {
+    changeReviewList.innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  }
+});
+
+businessMemoryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (currentWorkspaceId === null) {
+    businessMemoryResult.textContent = "Selecteaza mai intai firma curenta.";
+    return;
+  }
+  const text = businessMemoryInput.value.trim();
+  if (!text) {
+    businessMemoryResult.textContent = "Scrie mai intai instructiunea naturala.";
+    return;
+  }
+  try {
+    businessMemorySubmit.disabled = true;
+    const payload = await requestJson("/api/business-memory", {
+      method: "POST",
+      body: JSON.stringify({
+        workspace_id: currentWorkspaceId,
+        text,
+      }),
+    });
+    businessMemoryResult.textContent = `Salvat. ${payload.fact_count} fapte extrase.`;
+    businessMemoryInput.value = "";
+    await refreshWorkspaceData();
+  } catch (error) {
+    businessMemoryResult.textContent = error.message;
+  } finally {
+    businessMemorySubmit.disabled = false;
+  }
+});
+
 reviewList.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
-  if (!button) {
+  if (!button || activeImportId === null) {
     return;
   }
 
-  if (activeImportId === null) {
-    answerBox.textContent = "Selecteaza un import activ inainte de review.";
-    return;
-  }
-
-  const action = button.dataset.action;
-  const id = Number(button.dataset.id);
   try {
-    if (action === "confirm") {
-      await requestJson("/api/review/confirm", {
-        method: "POST",
-        body: JSON.stringify({ transaction_id: id, import_batch_id: activeImportId }),
-      });
-      uploadResult.textContent = "Tranzactia a fost marcata ca fiind corecta.";
-    }
-
-    if (action === "category") {
-      const input = document.getElementById(`category-${id}`);
-      const categoryName = input.value.trim();
-      if (!categoryName) {
-        uploadResult.textContent = "Scrie mai intai numele categoriei.";
-        return;
-      }
-      await requestJson("/api/review/category", {
-        method: "POST",
-        body: JSON.stringify({
-          category_name: categoryName,
-          transaction_ids: [id],
-          apply_to_similar: true,
-          import_batch_id: activeImportId,
-        }),
-      });
-      uploadResult.textContent = `Categoria "${categoryName}" a fost aplicata.`;
-    }
-
-    if (action === "category-group") {
+    if (button.dataset.action === "category-group") {
       const groupKey = button.dataset.groupKey;
       const select = document.getElementById(`category-group-select-${groupKey}`);
       const newInput = document.getElementById(`category-group-new-${groupKey}`);
@@ -827,10 +1049,7 @@ reviewList.addEventListener("click", async (event) => {
         uploadResult.textContent = "Alege o categorie sau scrie numele categoriei noi.";
         return;
       }
-      const ids = String(button.dataset.ids || "")
-        .split(",")
-        .filter(Boolean)
-        .map((value) => Number(value));
+      const ids = String(button.dataset.ids || "").split(",").filter(Boolean).map((value) => Number(value));
       await requestJson("/api/review/category", {
         method: "POST",
         body: JSON.stringify({
@@ -840,13 +1059,10 @@ reviewList.addEventListener("click", async (event) => {
           import_batch_id: activeImportId,
         }),
       });
-      await loadCategories();
-      uploadResult.textContent = select.value === "__new__"
-        ? `Categorie creata si aplicata: "${categoryName}".`
-        : `Categoria "${categoryName}" a fost aplicata pe tot grupul.`;
+      uploadResult.textContent = `Categoria "${categoryName}" a fost aplicata pe grup.`;
     }
 
-    if (action === "category-bulk") {
+    if (button.dataset.action === "category-bulk") {
       const select = document.getElementById("bulk-category-select");
       const newInput = document.getElementById("bulk-category-new");
       const categoryName = select.value === "__new__" ? newInput.value.trim() : select.value.trim();
@@ -871,15 +1087,10 @@ reviewList.addEventListener("click", async (event) => {
           import_batch_id: activeImportId,
         }),
       });
-      await loadCategories();
-      uploadResult.textContent = select.value === "__new__"
-        ? `Categorie creata si aplicata pe selectie: "${categoryName}".`
-        : `Categoria "${categoryName}" a fost aplicata pe selectia curenta.`;
+      uploadResult.textContent = `Categoria "${categoryName}" a fost aplicata pe selectia curenta.`;
     }
 
-    await loadSummary();
-    await loadReview();
-    await loadTransactions();
+    await refreshWorkspaceData();
   } catch (error) {
     answerBox.textContent = error.message;
   }
@@ -896,13 +1107,6 @@ reviewList.addEventListener("change", (event) => {
     : document.getElementById(inputId);
   if (input) {
     input.hidden = select.value !== "__new__";
-    const card = select.closest(".review-actions");
-    const button = card
-      ? card.querySelector('[data-action="category-group"]')
-      : document.querySelector('[data-action="category-bulk"]');
-    if (button) {
-      button.textContent = select.value === "__new__" ? "Creeaza categoria" : "Aplica categoria";
-    }
     if (!input.hidden) {
       input.focus();
     }
@@ -955,10 +1159,7 @@ categoriesList.addEventListener("click", async (event) => {
       uploadResult.textContent = `Tranzactia a fost mutata din "${currentCategory}" in "${categoryName}".`;
     }
 
-    await loadCategories();
-    await loadCategoryCatalog();
-    await loadReview();
-    await loadTransactions();
+    await refreshWorkspaceData();
   } catch (error) {
     answerBox.textContent = error.message;
   }
@@ -978,32 +1179,25 @@ categoriesList.addEventListener("change", (event) => {
   }
 });
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+changeReviewList.addEventListener("click", async (event) => {
+  const button = event.target.closest('[data-action="change-review-decision"]');
+  if (!button) {
+    return;
+  }
+  try {
+    await requestJson("/api/change-review/decision", {
+      method: "POST",
+      body: JSON.stringify({
+        item_id: Number(button.dataset.id),
+        decision: button.dataset.decision,
+      }),
+    });
+    await refreshWorkspaceData();
+  } catch (error) {
+    answerBox.textContent = error.message;
+  }
+});
 
-loadWorkspaces()
-  .then(async () => {
-    await loadImports(null);
-    await loadCategories();
-    if (currentWorkspaceId !== null && activeImportId !== null) {
-      await loadSummary();
-      await loadReview();
-      await loadCategoryCatalog();
-      await loadTransactions();
-    } else {
-      categoriesList.innerHTML = '<p class="muted">Selecteaza firma si importa un extras pentru a vedea categoriile si tranzactiile lor.</p>';
-    }
-  })
-  .catch((error) => {
-    importMeta.textContent = error.message;
-    setEmptySessionState(error.message);
-  });
 workspaceCreateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = workspaceNameInput.value.trim();
@@ -1018,11 +1212,8 @@ workspaceCreateForm.addEventListener("submit", async (event) => {
     });
     currentWorkspaceId = Number(payload.workspace_id);
     workspaceNameInput.value = "";
-    await loadWorkspaces(currentWorkspaceId);
-    await loadImports(null);
-    await loadCategories();
-    await loadCategoryCatalog();
-    await loadTransactions();
+    setActiveTab("questions");
+    await refreshWorkspaceData();
     uploadResult.textContent = `Firma "${currentWorkspaceName}" a fost creata. Poti importa primul extras.`;
   } catch (error) {
     workspaceCurrent.textContent = error.message;
@@ -1036,14 +1227,20 @@ workspaceList.addEventListener("click", async (event) => {
   }
   currentWorkspaceId = Number(button.dataset.workspaceId);
   currentWorkspaceName = button.dataset.workspaceName || null;
+  activeImportId = null;
   try {
-    await loadWorkspaces(currentWorkspaceId);
-    activeImportId = null;
-    await loadImports(null);
-    await loadCategories();
-    await loadCategoryCatalog();
-    await loadTransactions();
+    await refreshWorkspaceData();
   } catch (error) {
     workspaceCurrent.textContent = error.message;
   }
 });
+
+setActiveTab("questions");
+loadWorkspaces()
+  .then(async () => {
+    await refreshWorkspaceData();
+  })
+  .catch((error) => {
+    importMeta.textContent = error.message;
+    setEmptySessionState(error.message);
+  });

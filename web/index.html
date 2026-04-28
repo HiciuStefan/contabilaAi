@@ -40,82 +40,257 @@
             <p id="onboarding-status" class="muted">Importa documentele, adauga contextul de business si inchide review-ul important inainte de intrebari.</p>
           </div>
         </div>
-        <div class="onboarding-grid">
-          <div class="onboarding-step">
+        <div id="onboarding-checklist" class="onboarding-grid">
+          <div id="onboarding-imports" class="onboarding-step">
             <strong>1. Import documente</strong>
-            <p class="muted">Adauga extrase noi si facturi emise sau primite in firma curenta.</p>
+            <p class="muted">Adauga extrase si facturi pentru firma curenta.</p>
+            <p class="step-status" data-step-status="imports">Fara importuri inca.</p>
+            <button type="button" class="button-ghost" data-open-tab="questions">Deschide importul</button>
           </div>
-          <div class="onboarding-step">
-            <strong>2. Business instructions</strong>
+          <div id="onboarding-memory" class="onboarding-step">
+            <strong>2. Business memory</strong>
             <p class="muted">Spune natural cine e partener, colaborator sau pe ce proiect lucreaza.</p>
+            <p class="step-status" data-step-status="memory">Nicio instructiune salvata inca.</p>
+            <button type="button" class="button-ghost" data-open-tab="memory">Deschide business memory</button>
           </div>
-          <div class="onboarding-step">
-            <strong>3. Review prioritizat</strong>
-            <p class="muted">Inchide tranzactiile critical si high, apoi continui in workspace-ul complet.</p>
+          <div id="onboarding-review" class="onboarding-step">
+            <strong>3. Review prioritar</strong>
+            <p class="muted">Inchide severitatile critical si high ca sa poti intreba fara blocaj.</p>
+            <p class="step-status" data-step-status="review">Nu exista inca statistici de review.</p>
+            <button type="button" class="button-ghost" data-open-tab="review">Deschide review</button>
+          </div>
+          <div id="onboarding-change-review" class="onboarding-step">
+            <strong>4. Schimbari propuse</strong>
+            <p class="muted">Verifica ce s-a reinterpretat dupa importul de facturi sau reguli noi.</p>
+            <p class="step-status" data-step-status="change-review">Nicio schimbare propusa.</p>
+            <button type="button" class="button-ghost" data-open-tab="review">Vezi change review</button>
           </div>
         </div>
       </article>
     </section>
 
     <section id="workspace-app" hidden>
-    <nav class="workspace-tabs" aria-label="Workspace navigation">
-      <button type="button" class="workspace-tab is-active" data-tab="questions">Intrebari</button>
-      <button type="button" class="workspace-tab" data-tab="transactions">Tranzactii</button>
-      <button type="button" class="workspace-tab" data-tab="categories">Categorii</button>
-      <button type="button" class="workspace-tab" data-tab="invoices">Facturi</button>
-      <button type="button" class="workspace-tab" data-tab="memory">Business Memory</button>
-      <button type="button" class="workspace-tab" data-tab="review">Review</button>
-    </nav>
+      <section class="hero">
+        <p class="eyebrow">Local finance copilot</p>
+        <h1>ContabilaAi</h1>
+        <p class="lede">Importa extrasul, pune intrebari peste datele reale si corecteaza rapid tranzactiile care merita revazute.</p>
+      </section>
 
-    <section class="hero">
-      <p class="eyebrow">Local finance copilot</p>
-      <h1>ContabilaAi</h1>
-      <p class="lede">Importa extrasul, pune intrebari peste datele reale si corecteaza rapid tranzactiile care merita revazute.</p>
-    </section>
+      <nav class="workspace-tabs" aria-label="Workspace navigation">
+        <button type="button" class="workspace-tab is-active" data-tab="questions">Intrebari</button>
+        <button type="button" class="workspace-tab" data-tab="transactions">Tranzactii</button>
+        <button type="button" class="workspace-tab" data-tab="categories">Categorii</button>
+        <button type="button" class="workspace-tab" data-tab="invoices">Facturi</button>
+        <button type="button" class="workspace-tab" data-tab="memory">Business Memory</button>
+        <button type="button" class="workspace-tab" data-tab="review">Review</button>
+      </nav>
 
-    <section class="panel grid">
-      <article class="card">
-        <h2>Import documente</h2>
-        <div class="button-row">
-          <button id="upload-button" type="button">Importa</button>
-          <button id="reset-button" type="button" class="button-secondary">Reseteaza tot</button>
-        </div>
-        <pre id="upload-result" class="output">Aplicatia porneste fara fisier preincarcat. Apasa Importa si alege un extras bancar sau o factura PDF.</pre>
-        <label class="field">
-          <span>Cale facturi emise PDF/JSON/CSV</span>
-          <input id="invoice-path" type="text" placeholder="Optional: lipeste calea catre factura sau lista de facturi emise">
-        </label>
-        <button id="invoice-upload-button" type="button">Importa facturi</button>
-        <pre id="invoice-upload-result" class="output">Daca importi facturi emise, cifra de afaceri se calculeaza din facturi, nu din incasari.</pre>
-      </article>
+      <section id="questions-panel" class="tab-panel" data-tab-panel="questions">
+        <section class="panel grid">
+          <article class="card">
+            <h2>Import documente</h2>
+            <div class="button-row">
+              <button id="upload-button" type="button">Importa extras</button>
+              <button id="reset-button" type="button" class="button-secondary">Reseteaza tot</button>
+            </div>
+            <pre id="upload-result" class="output">Aplicatia porneste fara fisier preincarcat. Apasa Importa si alege un extras bancar sau o factura PDF.</pre>
+            <label class="field">
+              <span>Rol facturi</span>
+              <select id="invoice-role">
+                <option value="issued">Facturi emise</option>
+                <option value="received">Facturi primite</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Cale facturi PDF/JSON/CSV</span>
+              <input id="invoice-path" type="text" placeholder="Optional: lipeste calea catre factura sau lista de facturi">
+            </label>
+            <button id="invoice-upload-button" type="button">Importa facturi</button>
+            <pre id="invoice-upload-result" class="output">Poti importa facturi emise sau primite. Importul poate genera matching si change review.</pre>
+          </article>
 
-      <article class="card">
-        <h2>Import activ</h2>
-        <label class="field">
-          <span>Set de date</span>
-          <select id="import-select">
-            <option value="">Niciun import selectat</option>
-          </select>
-        </label>
-        <div id="import-meta" class="answer">Aplicatia porneste fara sesiune activa. Importa un extras nou sau selecteaza un import salvat.</div>
-      </article>
+          <article class="card">
+            <h2>Import activ</h2>
+            <label class="field">
+              <span>Set de date</span>
+              <select id="import-select">
+                <option value="">Niciun import selectat</option>
+              </select>
+            </label>
+            <div id="import-meta" class="answer">Aplicatia porneste fara sesiune activa. Importa un extras nou sau selecteaza un import salvat.</div>
+          </article>
 
-      <article class="card">
-        <h2>Intreaba datele</h2>
-        <label class="field">
-          <span>Intrebare</span>
-          <input id="question-input" type="text" value="cat am avut creditare pe 2024">
-        </label>
-        <button id="question-button" type="button">Trimite</button>
-      </article>
+          <article class="card">
+            <h2>Intreaba datele</h2>
+            <label class="field">
+              <span>Intrebare</span>
+              <input id="question-input" type="text" value="cat am avut creditare pe 2024">
+            </label>
+            <button id="question-button" type="button">Trimite</button>
+          </article>
 
-      <article class="card">
-        <h2>Raspuns</h2>
-        <div id="answer" class="answer">Raspunsul apare aici.</div>
-        <div id="chat-rows" class="chat-results">
-          <p class="muted">Inca nu exista rezultat.</p>
-        </div>
-      </article>
+          <article class="card">
+            <h2>Raspuns</h2>
+            <div id="answer" class="answer">Raspunsul apare aici.</div>
+            <div id="chat-rows" class="chat-results">
+              <p class="muted">Inca nu exista rezultat.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <article class="card">
+            <h2>Rezumat</h2>
+            <pre id="summary" class="output">Inca nu exista date in sumar.</pre>
+          </article>
+        </section>
+      </section>
+
+      <section id="transactions-panel" class="tab-panel" data-tab-panel="transactions" hidden>
+        <section class="panel">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Toate tranzactiile</h2>
+                <p class="muted">Registru complet pentru importul activ. Filtreaza mai ales dupa valoare ca sa verifici rapid tranzactiile mari.</p>
+              </div>
+              <button id="transactions-refresh" type="button">Incarca</button>
+            </div>
+            <div class="transaction-filters">
+              <label class="field">
+                <span>Valoare minima absoluta</span>
+                <input id="tx-min-amount" type="number" step="0.01" placeholder="ex: 1000">
+              </label>
+              <label class="field">
+                <span>Directie</span>
+                <select id="tx-direction">
+                  <option value="">Toate</option>
+                  <option value="inflow">Incasari</option>
+                  <option value="outflow">Plati</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Cauta</span>
+                <input id="tx-search" type="text" placeholder="partener sau descriere">
+              </label>
+            </div>
+            <div id="transactions-list" class="review-list">
+              <p class="muted">Apasa Incarca pentru a vedea tranzactiile.</p>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="categories-panel" class="tab-panel" data-tab-panel="categories" hidden>
+        <section class="panel">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Categorii</h2>
+                <p class="muted">Vezi ce a fost clasificat, completeaza explicatia categoriei si muta tranzactiile acolo unde trebuie.</p>
+              </div>
+              <button id="categories-refresh" type="button">Reincarca</button>
+            </div>
+            <div id="categories-list" class="review-list">
+              <p class="muted">Categoriile apar aici dupa primul import si dupa primele clasificari.</p>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="invoice-hub-panel" class="tab-panel" data-tab-panel="invoices" hidden>
+        <section class="panel grid">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Facturi</h2>
+                <p class="muted">Vezi toate facturile emise si primite din firma curenta si cum influenteaza matching-ul.</p>
+              </div>
+              <button id="invoices-refresh" type="button">Reincarca</button>
+            </div>
+            <div id="invoices-summary" class="answer">Nu exista inca facturi in firma curenta.</div>
+            <div id="invoices-list" class="review-list">
+              <p class="muted">Facturile apar aici dupa primul import.</p>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Matching propus</h2>
+                <p class="muted">Aici vezi legaturile propuse sau acceptate intre tranzactii si facturi.</p>
+              </div>
+            </div>
+            <div id="matches-list" class="review-list">
+              <p class="muted">Matching-ul apare aici dupa ce importi facturi primite sau exista plati compatibile.</p>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="business-memory-panel" class="tab-panel" data-tab-panel="memory" hidden>
+        <section class="panel grid">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Business Memory</h2>
+                <p class="muted">Scrii natural, sistemul extrage fapte structurate pe firma curenta si le foloseste la clasificare si planner.</p>
+              </div>
+            </div>
+            <form id="business-memory-form">
+              <label class="field">
+                <span>Instructiune naturala</span>
+                <textarea id="business-memory-input" rows="6" placeholder="ex: AI Excellence nu e partener, e colaborator. Casa Decor lucreaza pentru proiectul Casa Noua."></textarea>
+              </label>
+              <button id="business-memory-submit" type="submit">Salveaza instructiunea</button>
+            </form>
+            <pre id="business-memory-result" class="output">Aici apare confirmarea dupa salvarea unei instructiuni.</pre>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Fapte extrase</h2>
+                <p class="muted">Istoricul structurat care ramane atasat firmei curente.</p>
+              </div>
+              <button id="business-memory-refresh" type="button">Reincarca</button>
+            </div>
+            <div id="business-memory-facts" class="review-list">
+              <p class="muted">Nu exista inca fapte salvate.</p>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="review-panel" class="tab-panel" data-tab-panel="review" hidden>
+        <section class="panel">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Review rapid</h2>
+                <p class="muted">Aici apar grupuri de tranzactii cu incredere mica. Poti aplica o categorie pe tot grupul sau il poti marca drept corect.</p>
+              </div>
+              <button id="refresh-review" type="button">Reincarca</button>
+            </div>
+            <div id="review-list" class="review-list"></div>
+          </article>
+        </section>
+
+        <section id="change-review-panel" class="panel">
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2>Change review</h2>
+                <p class="muted">Aici vezi schimbarile propuse dupa matching, import de facturi sau reguli noi de business memory.</p>
+              </div>
+              <button id="change-review-refresh" type="button">Reincarca</button>
+            </div>
+            <div id="change-review-list" class="review-list">
+              <p class="muted">Nu exista schimbari propuse in acest moment.</p>
+            </div>
+          </article>
+        </section>
+      </section>
     </section>
 
     <dialog id="import-dialog" class="modal">
@@ -136,87 +311,6 @@
         </div>
       </form>
     </dialog>
-
-    <section class="panel">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Review rapid</h2>
-            <p class="muted">Aici apar grupuri de tranzactii cu incredere mica. Poti aplica o categorie pe tot grupul sau il poti marca drept corect.</p>
-          </div>
-          <button id="refresh-review" type="button">Reincarca</button>
-        </div>
-        <div id="review-list" class="review-list"></div>
-      </article>
-    </section>
-
-    <section class="panel">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Categorii</h2>
-            <p class="muted">Vezi ce a fost clasificat, completeaza explicatia categoriei si muta tranzactiile acolo unde trebuie.</p>
-          </div>
-          <button id="categories-refresh" type="button">Reincarca</button>
-        </div>
-        <div id="categories-list" class="review-list">
-          <p class="muted">Categoriile apar aici dupa primul import si dupa primele clasificari.</p>
-        </div>
-      </article>
-    </section>
-
-    <section class="panel">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Toate tranzactiile</h2>
-            <p class="muted">Registru complet pentru importul activ. Filtreaza mai ales dupa valoare ca sa verifici rapid tranzactiile mari.</p>
-          </div>
-          <button id="transactions-refresh" type="button">Incarca</button>
-        </div>
-        <div class="transaction-filters">
-          <label class="field">
-            <span>Valoare minima absoluta</span>
-            <input id="tx-min-amount" type="number" step="0.01" placeholder="ex: 1000">
-          </label>
-          <label class="field">
-            <span>Directie</span>
-            <select id="tx-direction">
-              <option value="">Toate</option>
-              <option value="inflow">Incasari</option>
-              <option value="outflow">Plati</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Cauta</span>
-            <input id="tx-search" type="text" placeholder="partener sau descriere">
-          </label>
-        </div>
-        <div id="transactions-list" class="review-list">
-          <p class="muted">Apasa Incarca pentru a vedea tranzactiile.</p>
-        </div>
-      </article>
-    </section>
-
-    <section class="panel">
-      <article class="card">
-        <h2>Rezumat</h2>
-        <pre id="summary" class="output">Inca nu exista date in sumar.</pre>
-      </article>
-    </section>
-    </section>
-
-    <section id="business-memory-panel" class="panel" hidden>
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Business Memory</h2>
-            <p class="muted">Aici va trai istoricul instructiunilor tale naturale si relatiile extrase din ele.</p>
-          </div>
-        </div>
-        <div class="answer">Panoul complet de business memory urmeaza in pasul urmator. Structura UI este pregatita.</div>
-      </article>
-    </section>
   </main>
 
   <script src="/app.js"></script>

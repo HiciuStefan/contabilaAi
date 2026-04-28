@@ -212,6 +212,29 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if parsed.path == "/api/invoice-matches":
+            workspace_id = self._parse_workspace_id(parsed.query)
+            if workspace_id is None:
+                raise ValueError("workspace_id is required.")
+            items = []
+            for item in self.services["store"].list_invoice_matches(workspace_id):
+                invoice = self.services["store"].fetch_workspace_invoice_by_id(int(item["invoice_id"]))
+                transaction = self.services["store"].fetch_transaction_by_id(int(item["transaction_id"]))
+                items.append(
+                    {
+                        **item,
+                        "invoice_number": None if not invoice else invoice.get("invoice_number"),
+                        "counterparty_name": None if not invoice else invoice.get("counterparty_name"),
+                        "currency": (
+                            invoice.get("currency")
+                            if invoice and invoice.get("currency")
+                            else (transaction.get("currency") if transaction else None)
+                        ),
+                        "merchant": None if not transaction else transaction.get("merchant"),
+                    }
+                )
+            self._send_json({"items": items})
+            return
         if parsed.path == "/api/change-review":
             workspace_id = self._parse_workspace_id(parsed.query)
             if workspace_id is None:

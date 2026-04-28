@@ -43,6 +43,22 @@ class HttpSmokeTest(unittest.TestCase):
         self.assertIn('id="onboarding-wizard"', index_html)
         self.assertIn('id="workspace-app"', index_html)
         self.assertIn('id="business-memory-panel"', index_html)
+        self.assertIn('id="invoice-hub-panel"', index_html)
+        self.assertIn('id="change-review-panel"', index_html)
+        self.assertIn('id="business-memory-form"', index_html)
+        self.assertIn('id="business-memory-input"', index_html)
+        self.assertIn('data-tab="invoices"', index_html)
+        self.assertIn('data-tab="memory"', index_html)
+        self.assertIn('data-tab="review"', index_html)
+
+    def test_index_contains_onboarding_checklist_sections(self) -> None:
+        index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="onboarding-checklist"', index_html)
+        self.assertIn('id="onboarding-imports"', index_html)
+        self.assertIn('id="onboarding-memory"', index_html)
+        self.assertIn('id="onboarding-review"', index_html)
+        self.assertIn('id="onboarding-change-review"', index_html)
 
     def test_workspaces_endpoint_creates_and_lists_workspace(self) -> None:
         data_dir = ROOT / "test_http_data_workspaces"
@@ -401,6 +417,94 @@ class HttpSmokeTest(unittest.TestCase):
 
             self.assertEqual(upload_payload["matches"][0]["match_kind"], "partial_payment")
             self.assertEqual(upload_payload["matches"][0]["matched_amount"], 500.0)
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+            if invoice_path.exists():
+                invoice_path.unlink()
+
+    def test_invoice_matches_endpoint_returns_enriched_match_rows(self) -> None:
+        data_dir = ROOT / "test_http_data_invoice_matches_endpoint"
+        invoice_path = ROOT / "_http_workspace_invoice_matches.json"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            invoice_path.write_text(
+                json.dumps(
+                    {
+                        "invoices": [
+                            {
+                                "invoice_number": "INV-MATCH-ENRICHED",
+                                "issue_date": "2025-03-01",
+                                "customer": "Casa Decor SRL",
+                                "total": "750",
+                                "vat": "0",
+                                "currency": "RON",
+                                "status": "issued",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-03-15",
+                        description="Plata partiala factura Casa Decor",
+                        amount=-500.0,
+                        currency="RON",
+                        balance=3200.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"http-match-list"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                upload_request = Request(
+                    f"{base_url}/api/invoices/upload",
+                    data=json.dumps(
+                        {
+                            "workspace_id": workspace_id,
+                            "role": "received",
+                            "path": str(invoice_path),
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(upload_request, timeout=5):
+                    pass
+                with urlopen(
+                    f"{base_url}/api/invoice-matches?workspace_id={workspace_id}",
+                    timeout=5,
+                ) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(len(payload["items"]), 1)
+            self.assertEqual(payload["items"][0]["invoice_number"], "INV-MATCH-ENRICHED")
+            self.assertEqual(payload["items"][0]["counterparty_name"], "Casa Decor SRL")
+            self.assertEqual(payload["items"][0]["merchant"], "Casa Decor SRL")
         finally:
             db_path = data_dir / "contabila_ai.sqlite3"
             if db_path.exists():
