@@ -133,3 +133,51 @@ class BusinessMemoryTest(unittest.TestCase):
         self.assertEqual(len(facts), 2)
         self.assertEqual({fact.fact_type for fact in facts}, {"project_assignment"})
         self.assertEqual({fact.fact_value for fact in facts}, {"Atlas"})
+
+    def test_business_memory_category_rule_creates_change_review_for_matching_transactions(self) -> None:
+        db_path = ROOT / "test_business_memory_category_rule.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2023-05-10",
+                        description="Materiale pentru casa",
+                        amount=-1200.0,
+                        currency="RON",
+                        balance=5000.0,
+                        merchant="Casa Decor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"house-1"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2023-05-12",
+                        description="Abonament software",
+                        amount=-200.0,
+                        currency="RON",
+                        balance=4800.0,
+                        merchant="Software Vendor SRL",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"software-1"}',
+                    ),
+                ],
+                workspace_id=workspace_id,
+            )
+            service = BusinessMemoryService(store)
+
+            result = service.add_instruction(
+                workspace_id,
+                "am facut o casa intre 2020-2024, pune cheltuielile astea la categoria casa",
+            )
+            items = store.list_change_review_items(workspace_id)
+
+            self.assertEqual(result["fact_count"], 1)
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["field_name"], "analysis_category")
+            self.assertEqual(items[0]["new_value"], "casa")
+        finally:
+            if db_path.exists():
+                db_path.unlink()

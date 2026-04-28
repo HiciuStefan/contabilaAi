@@ -29,23 +29,49 @@ class BusinessMemoryService:
         instruction_id = self._store.add_business_instruction(workspace_id=workspace_id, raw_text=raw_text)
         inserted = self._store.add_business_facts(workspace_id=workspace_id, instruction_id=instruction_id, facts=facts)
         for fact in facts:
-            if fact.fact_type != "entity_type":
-                continue
-            entity_type = ENTITY_TYPE_MAP.get(fact.fact_value)
-            if not entity_type:
-                continue
-            self._store.upsert_entity_memory(
-                entity_name=fact.subject_name,
-                entity_type=entity_type,
-                confidence=fact.confidence,
-                notes=f"business memory: {raw_text}",
-            )
+            self._apply_fact(workspace_id=workspace_id, raw_text=raw_text, fact=fact)
         self._store.reclassify_transactions()
         return {
             "instruction_id": instruction_id,
             "fact_count": inserted,
             "facts": self._store.list_business_facts(workspace_id),
         }
+
+    def _apply_fact(self, *, workspace_id: int, raw_text: str, fact: BusinessFact) -> None:
+        if fact.fact_type == "entity_type":
+            entity_type = ENTITY_TYPE_MAP.get(fact.fact_value)
+            if not entity_type:
+                return
+            self._store.upsert_entity_memory(
+                entity_name=fact.subject_name,
+                entity_type=entity_type,
+                confidence=fact.confidence,
+                notes=f"business memory: {raw_text}",
+            )
+            return
+        if fact.fact_type != "category_rule":
+            return
+        extra_payload = {}
+        if fact.extra_json:
+            try:
+                extra_payload = json.loads(fact.extra_json)
+            except json.JSONDecodeError:
+                extra_payload = {}
+        for row in self._store.list_transactions_for_business_rule(
+            workspace_id=workspace_id,
+            keyword=fact.subject_name,
+            date_start=extra_payload.get("date_start"),
+            date_end=extra_payload.get("date_end"),
+        ):
+            self._store.create_change_review_item(
+                workspace_id=workspace_id,
+                transaction_id=int(row["id"]),
+                field_name="analysis_category",
+                old_value="",
+                new_value=fact.fact_value,
+                reason=f"business memory rule from instruction: {raw_text}",
+                confidence=fact.confidence,
+            )
 
 
 def parse_instruction_to_facts(raw_text: str) -> list[BusinessFact]:

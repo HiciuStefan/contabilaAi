@@ -933,6 +933,48 @@ class SQLiteTransactionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_transactions_for_business_rule(
+        self,
+        *,
+        workspace_id: int,
+        keyword: str,
+        date_start: str | None = None,
+        date_end: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = [
+            "ib.workspace_id = ?",
+            "t.amount < 0",
+            "NOT EXISTS (SELECT 1 FROM transaction_category_links AS tcl WHERE tcl.transaction_id = t.id)",
+            "(LOWER(COALESCE(t.merchant, '')) LIKE ? OR LOWER(COALESCE(t.description, '')) LIKE ?)",
+        ]
+        params: list[Any] = [int(workspace_id)]
+        pattern = f"%{keyword.lower()}%"
+        params.extend([pattern, pattern])
+        if date_start:
+            clauses.append("t.transaction_date >= ?")
+            params.append(date_start)
+        if date_end:
+            clauses.append("t.transaction_date <= ?")
+            params.append(date_end)
+
+        where_sql = " AND ".join(clauses)
+        return self.query(
+            f"""
+            SELECT
+                t.id,
+                t.transaction_date,
+                t.amount,
+                t.merchant,
+                t.description
+            FROM transactions AS t
+            INNER JOIN import_batches AS ib
+                ON ib.id = t.import_batch_id
+            WHERE {where_sql}
+            ORDER BY t.transaction_date ASC, t.id ASC
+            """,
+            tuple(params),
+        )
+
     def create_change_review_item(
         self,
         *,
