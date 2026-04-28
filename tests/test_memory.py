@@ -12,7 +12,7 @@ if str(SRC_DIR) not in sys.path:
 
 
 from contabila_ai.importing.models import ImportedTransaction  # noqa: E402
-from contabila_ai.memory import BusinessMemoryService  # noqa: E402
+from contabila_ai.memory import BusinessMemoryService, parse_instruction_to_facts  # noqa: E402
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
@@ -114,3 +114,22 @@ class BusinessMemoryTest(unittest.TestCase):
         finally:
             if db_path.exists():
                 db_path.unlink()
+
+    def test_parse_instruction_to_facts_extracts_house_category_rule_with_period(self) -> None:
+        facts = parse_instruction_to_facts(
+            "am facut o casa intre 2020-2024, pune cheltuielile astea la categoria casa"
+        )
+
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0].fact_type, "category_rule")
+        self.assertEqual(facts[0].fact_value, "casa")
+        self.assertIsInstance(facts[0].extra_json, str)
+
+    def test_parse_instruction_to_facts_supports_free_form_project_sentence(self) -> None:
+        facts = parse_instruction_to_facts(
+            "Sergiu Munteanu si Casa Decor SRL lucreaza pentru proiectul Atlas"
+        )
+
+        self.assertEqual(len(facts), 2)
+        self.assertEqual({fact.fact_type for fact in facts}, {"project_assignment"})
+        self.assertEqual({fact.fact_value for fact in facts}, {"Atlas"})
