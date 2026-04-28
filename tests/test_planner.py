@@ -117,6 +117,12 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(plan.support_level, "exact")
         self.assertEqual(plan.entity_name, "ai excellence")
 
+    def test_build_query_plan_marks_generic_situation_question_for_clarification(self) -> None:
+        plan = build_query_plan("care e situatia acum")
+
+        self.assertEqual(plan.support_level, "clarify")
+        self.assertEqual(plan.metric_label, "clarificare")
+
     def test_build_query_plan_detects_entity_relationship_summary_with_project_scope(self) -> None:
         plan = build_query_plan("care e situatia lui Casa Decor pe proiectul Casa Noua")
 
@@ -1057,6 +1063,14 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("plati 1000.0", answer.lower())
         self.assertIn("net 2000.0", answer.lower())
         self.assertIn("ai excellence", answer.lower())
+
+    def test_render_answer_asks_for_clarification_on_generic_situation_question(self) -> None:
+        plan = build_query_plan("care e situatia acum")
+
+        answer = render_answer(plan, [])
+
+        self.assertIn("nu sunt sigur", answer.lower())
+        self.assertIn("mai specific", answer.lower())
 
     def test_render_answer_mentions_project_for_entity_relationship_question(self) -> None:
         plan = build_query_plan("care e situatia lui Casa Decor pe proiectul Casa Noua")

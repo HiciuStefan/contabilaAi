@@ -66,6 +66,11 @@ AMBIGUOUS_ENTITY_SUMMARY_TOKENS = (
     "relatia cu",
     "relatia lui",
 )
+CLARIFY_TOKENS = (
+    "care e situatia",
+    "cum stau",
+    "ce se intampla",
+)
 FIRST_YEAR_TOKENS = (
     "primul an",
     "primul an fiscal",
@@ -226,6 +231,13 @@ def _detect_metric_info(question: str, requested_profit: bool) -> dict[str, obje
             "metric": "entity_relationship_summary",
             "label": "situatia relatiei",
             "support_level": "exact",
+            "excluded_economic_kinds": [],
+        }
+    if _needs_clarification(question):
+        return {
+            "metric": "total_amount",
+            "label": "clarificare",
+            "support_level": "clarify",
             "excluded_economic_kinds": [],
         }
 
@@ -432,3 +444,27 @@ def _should_include_creditare_balance(question: str, metric: str) -> bool:
 
 def _is_ambiguous_entity_summary_question(question: str) -> bool:
     return any(token in question for token in AMBIGUOUS_ENTITY_SUMMARY_TOKENS)
+
+
+def _needs_clarification(question: str) -> bool:
+    if not any(token in question for token in CLARIFY_TOKENS):
+        return False
+    if _is_ambiguous_entity_summary_question(question):
+        return False
+    if any(token in question for token in COUNT_TOKENS):
+        return False
+    if any(token in question for token in EXPENSE_TOKENS):
+        return False
+    if any(token in question for token in INCOME_TOKENS):
+        return False
+    if any(token in question for token, _ in ECONOMIC_KIND_PATTERNS):
+        return False
+    if any(token in question for token, _, _ in ESTIMATED_METRIC_PATTERNS):
+        return False
+    if any(token in question for token, _ in UNSUPPORTED_METRIC_PATTERNS):
+        return False
+    if any(token in question for token in OUTSTANDING_INVOICE_TOKENS):
+        return False
+    if "profit" in question or "proiectul " in question or "categoria " in question:
+        return False
+    return True
