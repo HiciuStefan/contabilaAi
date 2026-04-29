@@ -315,6 +315,9 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/upload-file":
                 self._handle_upload_file()
                 return
+            if parsed.path == "/api/invoices/upload-file":
+                self._handle_invoice_upload_file()
+                return
             payload = self._read_json()
             if parsed.path == "/api/upload":
                 self._handle_upload(payload)
@@ -383,6 +386,47 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
             destination = uploads_dir / f"{destination.stem}-{len(list(uploads_dir.glob(destination.stem + '*')))}{destination.suffix}"
         destination.write_bytes(uploaded.content)
         self._import_statement_path(destination, workspace_id=self._parse_workspace_id(urlparse(self.path).query))
+
+    def _handle_invoice_upload_file(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        if content_length <= 0:
+            raise ValueError("Upload body is empty.")
+        parsed = urlparse(self.path)
+        workspace_id = self._parse_workspace_id(parsed.query)
+        if workspace_id is None:
+            raise ValueError("workspace_id is required.")
+        role = self._parse_text_param(parsed.query, "role") or "issued"
+        uploaded = parse_single_file_multipart(
+            content_type=self.headers.get("Content-Type", ""),
+            body=self.rfile.read(content_length),
+        )
+        uploads_dir = Path(self.services["data_dir"]) / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", Path(uploaded.filename).name).strip(" .")
+        if not safe_name:
+            safe_name = "invoice"
+        destination = uploads_dir / safe_name
+        if destination.exists():
+            destination = uploads_dir / f"{destination.stem}-{len(list(uploads_dir.glob(destination.stem + '*')))}{destination.suffix}"
+        destination.write_bytes(uploaded.content)
+        result = import_invoice_documents(
+            store=self.services["store"],
+            workspace_id=workspace_id,
+            role=role,
+            source_path=destination,
+        )
+        matches = self.services["matching"].match_workspace(workspace_id=workspace_id)
+        change_items = self.services["change_review"].refresh_for_workspace(workspace_id=workspace_id)
+        self._send_json(
+            {
+                **result,
+                "matches": matches,
+                "change_review_items": change_items,
+                "invoice_summary": self.services["store"].issued_invoice_summary(),
+                "workspace_id": workspace_id,
+                "role": role,
+            }
+        )
 
     def _import_statement_path(self, source_path: Path, *, workspace_id: int | None = None) -> None:
         self._send_json(import_document_path(self.services, source_path, workspace_id=workspace_id))

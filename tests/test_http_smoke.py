@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from functools import partial
 from http.server import ThreadingHTTPServer
 import sys
@@ -447,6 +448,49 @@ class HttpSmokeTest(unittest.TestCase):
                 data_dir.rmdir()
             if invoice_path.exists():
                 invoice_path.unlink()
+
+    def test_invoice_upload_file_endpoint_accepts_multipart_file(self) -> None:
+        data_dir = ROOT / "test_http_data_invoice_upload_file"
+        if data_dir.exists():
+            shutil.rmtree(data_dir)
+        data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(data_dir=data_dir)
+            workspace_id = services["store"].create_workspace("MobExc")
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            boundary = "----ContabilaAiInvoiceBoundary"
+            body = (
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="file"; filename="inv.json"\r\n'
+                "Content-Type: application/json\r\n"
+                "\r\n"
+                '{"invoices":[{"invoice_number":"INV-UP-001","issue_date":"2025-03-10","customer":"Ai Excellence SRL","total":"2380","vat":"380","currency":"RON","status":"issued"}]}\r\n'
+                f"--{boundary}--\r\n"
+            ).encode("utf-8")
+            try:
+                upload_request = Request(
+                    f"{base_url}/api/invoices/upload-file?workspace_id={workspace_id}&role=issued",
+                    data=body,
+                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                    method="POST",
+                )
+                with urlopen(upload_request, timeout=5) as response:
+                    upload_payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(upload_payload["invoice_count"], 1)
+            self.assertEqual(upload_payload["items"][0]["invoice_number"], "INV-UP-001")
+            self.assertEqual(upload_payload["role"], "issued")
+        finally:
+            if data_dir.exists():
+                shutil.rmtree(data_dir)
 
     def test_invoice_upload_triggers_matching_proposals_for_workspace(self) -> None:
         data_dir = ROOT / "test_http_data_invoice_matching"

@@ -190,7 +190,9 @@
               <span>Cale facturi PDF/JSON/CSV</span>
               <input id="invoice-path" type="text" placeholder="Poti pune un fisier sau un folder cu facturi">
             </label>
-            <button id="invoice-upload-button" type="button">Importa facturi</button>
+            <div class="button-row">
+              <button id="invoice-upload-button" type="button">Importa facturi</button>
+            </div>
             <pre id="invoice-upload-result" class="output">Poti importa facturi emise sau primite. Importul poate genera matching si change review.</pre>
           </article>
 
@@ -300,13 +302,20 @@
 
     <dialog id="import-dialog" class="modal">
       <form method="dialog" class="modal-card">
-        <h2>Alege extrasul</h2>
-        <p class="muted">Selecteaza un extras bancar PDF/CSV/JSON sau o factura PDF. Daca selectorul nu merge, poti lipi si calea completa.</p>
+        <h2 id="import-dialog-title">Alege extrasul</h2>
+        <p id="import-dialog-description" class="muted">Selecteaza un extras bancar PDF/CSV/JSON sau o factura PDF. Daca selectorul nu merge, poti lipi si calea completa.</p>
+        <label id="import-dialog-role-field" class="field" hidden>
+          <span>Rol facturi</span>
+          <select id="import-dialog-invoice-role">
+            <option value="issued">Facturi emise</option>
+            <option value="received">Facturi primite</option>
+          </select>
+        </label>
         <label class="field">
           <span>Fisier</span>
           <input id="upload-file" type="file" accept=".pdf,.csv,.json">
         </label>
-        <label class="field">
+        <label id="upload-path-field" class="field">
           <span>Cale fisier optionala</span>
           <input id="upload-path" type="text" placeholder="C:\Users\stefan\Downloads\ExtrasDeCont.pdf">
         </label>

@@ -13,6 +13,11 @@ const uploadButton = document.getElementById("upload-button");
 const uploadConfirmButton = document.getElementById("upload-confirm-button");
 const uploadCancelButton = document.getElementById("upload-cancel-button");
 const importDialog = document.getElementById("import-dialog");
+const importDialogTitle = document.getElementById("import-dialog-title");
+const importDialogDescription = document.getElementById("import-dialog-description");
+const importDialogRoleField = document.getElementById("import-dialog-role-field");
+const importDialogInvoiceRole = document.getElementById("import-dialog-invoice-role");
+const uploadPathField = document.getElementById("upload-path-field");
 const resetButton = document.getElementById("reset-button");
 const uploadResult = document.getElementById("upload-result");
 const invoiceRoleSelect = document.getElementById("invoice-role");
@@ -57,6 +62,7 @@ let currentWorkspaceName = null;
 let currentTab = "questions";
 let knownCategories = [];
 let knownImports = [];
+let importDialogMode = "statement";
 
 function importHasTransactions(item) {
   return Number(item?.transaction_count || 0) > 0;
@@ -146,6 +152,46 @@ async function requestFileUpload(file, workspaceId = currentWorkspaceId) {
     throw new Error(payload.error || "Upload-ul a esuat.");
   }
   return payload;
+}
+
+async function requestInvoiceFileUpload(file, role, workspaceId = currentWorkspaceId) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const params = new URLSearchParams();
+  if (workspaceId !== null && workspaceId !== undefined) {
+    params.set("workspace_id", String(workspaceId));
+  }
+  params.set("role", role || "issued");
+  const response = await fetch(`/api/invoices/upload-file?${params.toString()}`, {
+    method: "POST",
+    body: formData,
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Upload-ul facturii a esuat.");
+  }
+  return payload;
+}
+
+function openImportDialog(mode) {
+  importDialogMode = mode;
+  uploadFileInput.value = "";
+  uploadPathInput.value = "";
+  if (mode === "invoice") {
+    importDialogTitle.textContent = "Alege factura";
+    importDialogDescription.textContent = "Selecteaza o factura PDF, JSON sau CSV. Daca vrei folder sau cale manuala, foloseste campul din tabul Facturi.";
+    importDialogRoleField.hidden = false;
+    importDialogInvoiceRole.value = invoiceRoleSelect.value;
+    uploadPathField.hidden = true;
+    uploadConfirmButton.textContent = "Importa factura";
+  } else {
+    importDialogTitle.textContent = "Alege extrasul";
+    importDialogDescription.textContent = "Selecteaza un extras bancar PDF/CSV/JSON sau o factura PDF. Daca selectorul nu merge, poti lipi si calea completa.";
+    importDialogRoleField.hidden = true;
+    uploadPathField.hidden = false;
+    uploadConfirmButton.textContent = "Importa fisierul";
+  }
+  importDialog.showModal();
 }
 
 function setEmptySessionState(message) {
@@ -897,7 +943,7 @@ onboardingWizard.addEventListener("click", (event) => {
 });
 
 uploadButton.addEventListener("click", () => {
-  importDialog.showModal();
+  openImportDialog("statement");
 });
 
 uploadCancelButton.addEventListener("click", () => {
@@ -906,30 +952,41 @@ uploadCancelButton.addEventListener("click", () => {
 
 uploadConfirmButton.addEventListener("click", async () => {
   if (currentWorkspaceId === null) {
-    uploadResult.textContent = "Creeaza sau alege mai intai firma in care vrei sa incarci extrasul.";
+    const targetBox = importDialogMode === "invoice" ? invoiceUploadResult : uploadResult;
+    targetBox.textContent = importDialogMode === "invoice"
+      ? "Creeaza sau alege mai intai firma in care vrei sa incarci facturile."
+      : "Creeaza sau alege mai intai firma in care vrei sa incarci extrasul.";
     return;
   }
   const file = uploadFileInput.files && uploadFileInput.files.length ? uploadFileInput.files[0] : null;
   const path = uploadPathInput.value.trim();
-  if (!file && !path) {
-    uploadResult.textContent = "Alege un fisier PDF, CSV sau JSON sau lipeste calea completa.";
+  if (!file && (importDialogMode === "invoice" || !path)) {
+    const targetBox = importDialogMode === "invoice" ? invoiceUploadResult : uploadResult;
+    targetBox.textContent = importDialogMode === "invoice"
+      ? "Alege o factura PDF, CSV sau JSON."
+      : "Alege un fisier PDF, CSV sau JSON sau lipeste calea completa.";
     return;
   }
 
   try {
     uploadConfirmButton.disabled = true;
-    uploadResult.textContent = file ? `Import ${file.name} in curs...` : "Import din calea introdusa in curs...";
-    const payload = file
-      ? await requestFileUpload(file, currentWorkspaceId)
-      : await requestJson("/api/upload", {
-          method: "POST",
-          body: JSON.stringify({ path, workspace_id: currentWorkspaceId }),
-        });
-    if (payload.document_type === "issued_invoices") {
-      uploadResult.textContent = `Facturi importate: ${payload.result.inserted}. Sarite: ${payload.result.skipped}.`;
+    const targetBox = importDialogMode === "invoice" ? invoiceUploadResult : uploadResult;
+    targetBox.textContent = file ? `Import ${file.name} in curs...` : "Import din calea introdusa in curs...";
+    const payload = importDialogMode === "invoice"
+      ? await requestInvoiceFileUpload(file, importDialogInvoiceRole.value, currentWorkspaceId)
+      : file
+        ? await requestFileUpload(file, currentWorkspaceId)
+        : await requestJson("/api/upload", {
+            method: "POST",
+            body: JSON.stringify({ path, workspace_id: currentWorkspaceId }),
+          });
+    if (importDialogMode === "invoice" || payload.document_type === "issued_invoices") {
+      invoiceRoleSelect.value = importDialogMode === "invoice" ? importDialogInvoiceRole.value : invoiceRoleSelect.value;
+      targetBox.textContent = `Facturi importate: ${payload.result.inserted}. Matching nou: ${(payload.matches || []).length}. Change review: ${(payload.change_review_items || []).length}.`;
+      setActiveTab("invoices");
     } else {
       activeImportId = payload.active_import_id || null;
-      uploadResult.textContent = `Import reusit. Batch activ: ${activeImportId}. ${payload.imported_count} tranzactii citite.`;
+      targetBox.textContent = `Import reusit. Batch activ: ${activeImportId}. ${payload.imported_count} tranzactii citite.`;
     }
     uploadFileInput.value = "";
     uploadPathInput.value = "";
@@ -949,7 +1006,7 @@ invoiceUploadButton.addEventListener("click", async () => {
   }
   const path = invoicePathInput.value.trim();
   if (!path) {
-    invoiceUploadResult.textContent = "Introdu o cale reala catre un fisier sau un folder care contine facturi PDF, JSON sau CSV.";
+    openImportDialog("invoice");
     return;
   }
 
