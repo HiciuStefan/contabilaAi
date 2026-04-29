@@ -45,7 +45,7 @@
             <strong>1. Import documente</strong>
             <p class="muted">Adauga extrase si facturi pentru firma curenta.</p>
             <p class="step-status" data-step-status="imports">Fara importuri inca.</p>
-            <button type="button" class="button-ghost" data-open-tab="questions">Deschide importul</button>
+            <button type="button" class="button-ghost" data-open-tab="invoices">Deschide importul</button>
           </div>
           <div id="onboarding-memory" class="onboarding-step">
             <strong>2. Business memory</strong>
@@ -88,35 +88,8 @@
       <section id="questions-panel" class="tab-panel" data-tab-panel="questions">
         <section class="panel grid">
           <article class="card">
-            <h2>Import documente</h2>
-            <div class="button-row">
-              <button id="upload-button" type="button">Importa extras</button>
-              <button id="reset-button" type="button" class="button-secondary">Reseteaza tot</button>
-            </div>
-            <pre id="upload-result" class="output">Aplicatia porneste fara fisier preincarcat. Apasa Importa si alege un extras bancar sau o factura PDF.</pre>
-            <label class="field">
-              <span>Rol facturi</span>
-              <select id="invoice-role">
-                <option value="issued">Facturi emise</option>
-                <option value="received">Facturi primite</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Cale facturi PDF/JSON/CSV</span>
-              <input id="invoice-path" type="text" placeholder="Optional: lipeste calea catre factura sau lista de facturi">
-            </label>
-            <button id="invoice-upload-button" type="button">Importa facturi</button>
-            <pre id="invoice-upload-result" class="output">Poti importa facturi emise sau primite. Importul poate genera matching si change review.</pre>
-          </article>
-
-          <article class="card">
-            <h2>Import activ</h2>
-            <label class="field">
-              <span>Set de date</span>
-              <select id="import-select">
-                <option value="">Niciun import selectat</option>
-              </select>
-            </label>
+            <h2>Set de date pentru intrebari</h2>
+            <p class="muted">Intrebarile folosesc extrasul bancar activ. Pentru importuri si schimbarea batch-ului mergi in tabul Facturi.</p>
             <div id="import-meta" class="answer">Aplicatia porneste fara sesiune activa. Importa un extras nou sau selecteaza un import salvat.</div>
           </article>
 
@@ -135,13 +108,6 @@
             <div id="chat-rows" class="chat-results">
               <p class="muted">Inca nu exista rezultat.</p>
             </div>
-          </article>
-        </section>
-
-        <section class="panel">
-          <article class="card">
-            <h2>Rezumat</h2>
-            <pre id="summary" class="output">Inca nu exista date in sumar.</pre>
           </article>
         </section>
       </section>
@@ -179,6 +145,12 @@
             </div>
           </article>
         </section>
+        <section class="panel">
+          <article class="card">
+            <h2>Rezumat extras</h2>
+            <pre id="summary" class="output">Inca nu exista date in sumar.</pre>
+          </article>
+        </section>
       </section>
 
       <section id="categories-panel" class="tab-panel" data-tab-panel="categories" hidden>
@@ -200,6 +172,39 @@
 
       <section id="invoice-hub-panel" class="tab-panel" data-tab-panel="invoices" hidden>
         <section class="panel grid">
+          <article class="card">
+            <h2>Import documente</h2>
+            <div class="button-row">
+              <button id="upload-button" type="button">Importa extras</button>
+              <button id="reset-button" type="button" class="button-secondary">Reseteaza tot</button>
+            </div>
+            <pre id="upload-result" class="output">Aplicatia porneste fara fisier preincarcat. Apasa Importa si alege un extras bancar sau o factura PDF.</pre>
+            <label class="field">
+              <span>Rol facturi</span>
+              <select id="invoice-role">
+                <option value="issued">Facturi emise</option>
+                <option value="received">Facturi primite</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Cale facturi PDF/JSON/CSV</span>
+              <input id="invoice-path" type="text" placeholder="Poti pune un fisier sau un folder cu facturi">
+            </label>
+            <button id="invoice-upload-button" type="button">Importa facturi</button>
+            <pre id="invoice-upload-result" class="output">Poti importa facturi emise sau primite. Importul poate genera matching si change review.</pre>
+          </article>
+
+          <article class="card">
+            <h2>Import activ</h2>
+            <label class="field">
+              <span>Set de date</span>
+              <select id="import-select">
+                <option value="">Niciun import selectat</option>
+              </select>
+            </label>
+            <div class="muted">Aici alegi importul curent. Daca selectezi un batch de facturi, intrebarile vor continua sa foloseasca ultimul extras bancar cu tranzactii.</div>
+          </article>
+
           <article class="card">
             <div class="card-header">
               <div>

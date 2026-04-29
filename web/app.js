@@ -56,6 +56,38 @@ let currentWorkspace = null;
 let currentWorkspaceName = null;
 let currentTab = "questions";
 let knownCategories = [];
+let knownImports = [];
+
+function importHasTransactions(item) {
+  return Number(item?.transaction_count || 0) > 0;
+}
+
+function preferredTransactionImportId(imports, selectedImportId = activeImportId) {
+  if (!imports.length) {
+    return null;
+  }
+  const selected = imports.find((item) => Number(item.id) === Number(selectedImportId));
+  if (selected && importHasTransactions(selected)) {
+    return Number(selected.id);
+  }
+  const latestWithTransactions = imports.find((item) => importHasTransactions(item));
+  return latestWithTransactions ? Number(latestWithTransactions.id) : null;
+}
+
+function currentTransactionImportId() {
+  return preferredTransactionImportId(knownImports, activeImportId);
+}
+
+function importLabel(item) {
+  const parts = [
+    item.source_file || `Import #${item.id}`,
+    `${Number(item.transaction_count || 0)} tranzactii`,
+  ];
+  if (!importHasTransactions(item)) {
+    parts.push("facturi/matching");
+  }
+  return parts.join(" | ");
+}
 
 function setWorkspaceView(mode) {
   workspaceHome.hidden = mode !== "home";
@@ -209,23 +241,30 @@ async function loadWorkspaces(preferredWorkspaceId = currentWorkspaceId) {
 
 async function loadImports(selectedImportId = activeImportId) {
   if (currentWorkspaceId === null) {
+    knownImports = [];
     importSelect.innerHTML = '<option value="">Niciun import selectat</option>';
     setEmptySessionState("Creeaza sau alege mai intai o firma.");
     return [];
   }
   const payload = await requestJson(`/api/imports?workspace_id=${encodeURIComponent(currentWorkspaceId)}`);
   const imports = payload.imports || [];
+  knownImports = imports;
 
   importSelect.innerHTML = [
     '<option value="">Niciun import selectat</option>',
-    ...imports.map((item) => `<option value="${item.id}">${escapeHtml(item.source_file)} (#${item.id})</option>`),
+    ...imports.map((item) => `<option value="${item.id}">${escapeHtml(importLabel(item))} (#${item.id})</option>`),
   ].join("");
 
   if (selectedImportId === null || selectedImportId === undefined || selectedImportId === "") {
-    activeImportId = imports.length ? Number(imports[0].id) : null;
+    activeImportId = preferredTransactionImportId(imports) ?? (imports.length ? Number(imports[0].id) : null);
   } else {
     activeImportId = Number(selectedImportId);
   }
+
+  if (activeImportId === null && imports.length) {
+    activeImportId = Number(imports[0].id);
+  }
+
   importSelect.value = activeImportId === null ? "" : String(activeImportId);
 
   if (activeImportId === null) {
@@ -236,6 +275,8 @@ async function loadImports(selectedImportId = activeImportId) {
   }
 
   const activeImport = imports.find((item) => Number(item.id) === activeImportId);
+  const transactionImportId = currentTransactionImportId();
+  const transactionImport = imports.find((item) => Number(item.id) === Number(transactionImportId));
   if (!activeImport) {
     activeImportId = null;
     importSelect.value = "";
@@ -243,7 +284,11 @@ async function loadImports(selectedImportId = activeImportId) {
     return imports;
   }
 
-  importMeta.textContent = `${activeImport.source_file} | ${activeImport.transaction_count} tranzactii | ${activeImport.created_at}`;
+  if (transactionImport && Number(transactionImport.id) !== Number(activeImport.id)) {
+    importMeta.textContent = `${activeImport.source_file} este selectat pentru facturi/matching. Intrebarile si tranzactiile folosesc ${transactionImport.source_file}.`;
+  } else {
+    importMeta.textContent = `${activeImport.source_file} | ${activeImport.transaction_count} tranzactii | ${activeImport.created_at}`;
+  }
   return imports;
 }
 
@@ -258,10 +303,11 @@ async function loadSummary() {
     summaryBox.textContent = "Nicio firma activa.";
     return;
   }
+  const transactionImportId = currentTransactionImportId();
   const params = new URLSearchParams();
   params.set("workspace_id", String(currentWorkspaceId));
-  if (activeImportId !== null) {
-    params.set("import_id", String(activeImportId));
+  if (transactionImportId !== null) {
+    params.set("import_id", String(transactionImportId));
   }
   const payload = await requestJson(`/api/summary?${params.toString()}`);
   summaryBox.textContent = JSON.stringify(payload, null, 2);
@@ -272,10 +318,11 @@ async function loadReview() {
     reviewList.innerHTML = '<p class="muted">Selecteaza o firma pentru review.</p>';
     return;
   }
+  const transactionImportId = currentTransactionImportId();
   const params = new URLSearchParams();
   params.set("workspace_id", String(currentWorkspaceId));
-  if (activeImportId !== null) {
-    params.set("import_id", String(activeImportId));
+  if (transactionImportId !== null) {
+    params.set("import_id", String(transactionImportId));
   }
   const payload = await requestJson(`/api/review?${params.toString()}`);
   await loadCategories();
@@ -288,6 +335,7 @@ async function loadCategoryCatalog() {
     categoriesList.innerHTML = '<p class="muted">Nu exista inca nicio categorie salvata.</p>';
     return;
   }
+  const transactionImportId = currentTransactionImportId();
   const categoryRows = await Promise.all(
     categories.map(async (category) => {
       const params = new URLSearchParams();
@@ -296,8 +344,8 @@ async function loadCategoryCatalog() {
       if (currentWorkspaceId !== null) {
         params.set("workspace_id", String(currentWorkspaceId));
       }
-      if (activeImportId !== null) {
-        params.set("import_id", String(activeImportId));
+      if (transactionImportId !== null) {
+        params.set("import_id", String(transactionImportId));
       }
       const payload = await requestJson(`/api/category-transactions?${params.toString()}`);
       return {
@@ -314,10 +362,11 @@ async function loadTransactions() {
     transactionsList.innerHTML = '<p class="muted">Selecteaza o firma pentru registrul de tranzactii.</p>';
     return;
   }
+  const transactionImportId = currentTransactionImportId();
   const params = new URLSearchParams();
   params.set("workspace_id", String(currentWorkspaceId));
-  if (activeImportId !== null) {
-    params.set("import_id", String(activeImportId));
+  if (transactionImportId !== null) {
+    params.set("import_id", String(transactionImportId));
   }
   params.set("limit", "100");
   if (txMinAmountInput.value.trim()) {
@@ -527,40 +576,44 @@ function categoryControlHtml(prefix, group) {
 }
 
 function renderCategoryCatalog(categories) {
-  categoriesList.innerHTML = categories.map((category) => {
+  const visibleCategories = categories.filter((category) => (category.rows || []).length > 0);
+  if (!visibleCategories.length) {
+    categoriesList.innerHTML = '<p class="muted">Nu exista categorii cu tranzactii in extrasul bancar activ. Selecteaza un extras sau reclasifica din review.</p>';
+    return;
+  }
+
+  categoriesList.innerHTML = visibleCategories.map((category) => {
     const rows = category.rows || [];
-    const rowHtml = rows.length
-      ? rows.map((row) => {
-          const selectId = `category-move-${row.id}`;
-          const options = [
-            '<option value="">Muta in...</option>',
-            ...knownCategories
-              .filter((item) => item.name !== category.name)
-              .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`),
-            '<option value="__new__">Categorie noua...</option>',
-          ].join("");
-          return `
-            <tr>
-              <td>${escapeHtml(row.transaction_date || "-")}</td>
-              <td>${escapeHtml(row.merchant || "Fara partener")}</td>
-              <td title="${escapeHtml(row.description || "")}">${escapeHtml(transactionDetails(row.description || "").short)}</td>
-              <td class="amount-cell">${escapeHtml(formatAmount(row.amount, row.currency || "RON"))}</td>
-              <td>
-                <select id="${selectId}" class="category-select category-inline-select">${options}</select>
-                <input id="${selectId}-new" class="category-new-input" type="text" placeholder="Nume categorie" hidden>
-                <button type="button" data-action="move-category-transaction" data-id="${row.id}" data-current-category="${escapeHtml(category.name)}">Muta</button>
-              </td>
-            </tr>
-          `;
-        }).join("")
-      : '<tr><td colspan="5" class="muted">Nu exista tranzactii pentru categoria asta in importul activ.</td></tr>';
+    const rowHtml = rows.map((row) => {
+      const selectId = `category-move-${row.id}`;
+      const options = [
+        '<option value="">Muta in...</option>',
+        ...knownCategories
+          .filter((item) => item.name !== category.name)
+          .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`),
+        '<option value="__new__">Categorie noua...</option>',
+      ].join("");
+      return `
+        <tr>
+          <td>${escapeHtml(row.transaction_date || "-")}</td>
+          <td>${escapeHtml(row.merchant || "Fara partener")}</td>
+          <td title="${escapeHtml(row.description || "")}">${escapeHtml(transactionDetails(row.description || "").short)}</td>
+          <td class="amount-cell">${escapeHtml(formatAmount(row.amount, row.currency || "RON"))}</td>
+          <td>
+            <select id="${selectId}" class="category-select category-inline-select">${options}</select>
+            <input id="${selectId}-new" class="category-new-input" type="text" placeholder="Nume categorie" hidden>
+            <button type="button" data-action="move-category-transaction" data-id="${row.id}" data-current-category="${escapeHtml(category.name)}">Muta</button>
+          </td>
+        </tr>
+      `;
+    }).join("");
 
     return `
       <details class="review-item category-card">
         <summary class="category-summary">
           <strong>${escapeHtml(category.name)}</strong>
           <span>${escapeHtml(prettyOperationalScope(category.operational_scope))}</span>
-          <span>${escapeHtml(String(category.transaction_count || 0))} tranzactii</span>
+          <span>${escapeHtml(String(rows.length))} tranzactii in extrasul activ</span>
         </summary>
         <div class="category-editor">
           <label class="field">
@@ -896,7 +949,7 @@ invoiceUploadButton.addEventListener("click", async () => {
   }
   const path = invoicePathInput.value.trim();
   if (!path) {
-    invoiceUploadResult.textContent = "Introdu o cale reala catre un fisier PDF, JSON sau CSV cu facturi.";
+    invoiceUploadResult.textContent = "Introdu o cale reala catre un fisier sau un folder care contine facturi PDF, JSON sau CSV.";
     return;
   }
 
@@ -957,12 +1010,13 @@ questionButton.addEventListener("click", async () => {
     answerBox.textContent = "Creeaza sau alege mai intai firma pe care vrei sa o intrebi.";
     return;
   }
+  const transactionImportId = currentTransactionImportId();
   try {
     const payload = await requestJson("/api/chat", {
       method: "POST",
       body: JSON.stringify({
         question: questionInput.value,
-        import_batch_id: activeImportId,
+        import_batch_id: transactionImportId,
         workspace_id: currentWorkspaceId,
       }),
     });
@@ -1048,7 +1102,8 @@ businessMemoryForm.addEventListener("submit", async (event) => {
 
 reviewList.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
-  if (!button || activeImportId === null) {
+  const transactionImportId = currentTransactionImportId();
+  if (!button || transactionImportId === null) {
     return;
   }
 
@@ -1069,7 +1124,7 @@ reviewList.addEventListener("click", async (event) => {
           category_name: categoryName,
           transaction_ids: ids,
           apply_to_similar: true,
-          import_batch_id: activeImportId,
+          import_batch_id: transactionImportId,
         }),
       });
       uploadResult.textContent = `Categoria "${categoryName}" a fost aplicata pe grup.`;
@@ -1097,7 +1152,7 @@ reviewList.addEventListener("click", async (event) => {
           category_name: categoryName,
           transaction_ids: ids,
           apply_to_similar: true,
-          import_batch_id: activeImportId,
+          import_batch_id: transactionImportId,
         }),
       });
       uploadResult.textContent = `Categoria "${categoryName}" a fost aplicata pe selectia curenta.`;
@@ -1166,7 +1221,7 @@ categoriesList.addEventListener("click", async (event) => {
           transaction_ids: [transactionId],
           apply_to_similar: true,
           replace_existing: true,
-          import_batch_id: activeImportId,
+          import_batch_id: currentTransactionImportId(),
         }),
       });
       uploadResult.textContent = `Tranzactia a fost mutata din "${currentCategory}" in "${categoryName}".`;
