@@ -458,6 +458,67 @@ class ReviewServiceTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_apply_category_learns_rule_for_future_similar_imports(self) -> None:
+        db_path = ROOT / "test_review_learn_category_rule.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            first_import = store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-10",
+                        description="POS purchase flota",
+                        amount=-250.0,
+                        currency="RON",
+                        balance=4100.0,
+                        merchant="OMV 1612",
+                        source_file="statement-1.csv",
+                        raw_payload='{"id":"fuel-1"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            first_row = store.list_transactions(import_batch_id=first_import["import_batch_id"], limit=5)[0]
+
+            result = ReviewService(store).apply_category(
+                "benzina",
+                [int(first_row["id"])],
+                apply_to_similar=False,
+            )
+
+            second_import = store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-05-02",
+                        description="POS purchase carburant",
+                        amount=-300.0,
+                        currency="RON",
+                        balance=3800.0,
+                        merchant="OMV 1612",
+                        source_file="statement-2.csv",
+                        raw_payload='{"id":"fuel-2"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            second_row = store.list_transactions(import_batch_id=second_import["import_batch_id"], limit=5)[0]
+
+            self.assertEqual(result["updated_count"], 1)
+            self.assertIn("benzina", second_row["category_names"])
+            rules = store.list_classification_rules()
+            learned_rules = [
+                rule for rule in rules
+                if rule["match_field"] == "merchant"
+                and rule["pattern"] == "omv"
+                and rule["analysis_category"] == "benzina"
+            ]
+            self.assertEqual(len(learned_rules), 1)
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
     def test_apply_category_can_replace_existing_category_for_similar_transactions(self) -> None:
         db_path = ROOT / "test_review_replace_category.sqlite3"
         if db_path.exists():

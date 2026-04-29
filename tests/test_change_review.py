@@ -137,6 +137,63 @@ class ChangeReviewServiceTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_change_review_accept_learns_category_rule_for_future_imports(self) -> None:
+        db_path = ROOT / "test_change_review_accept_learn_rule.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            workspace_id = store.create_workspace("MobExc")
+            first_import = store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-10",
+                        description="Plata combustibil flota",
+                        amount=-450.0,
+                        currency="RON",
+                        balance=4100.0,
+                        merchant="OMV 1612",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"accept-fuel-1"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            transaction_id = store.list_transactions(import_batch_id=first_import["import_batch_id"], limit=5)[0]["id"]
+            item = store.create_change_review_item(
+                workspace_id=workspace_id,
+                transaction_id=transaction_id,
+                field_name="analysis_category",
+                old_value="",
+                new_value="benzina",
+                reason="same counterparty category profile",
+                confidence=0.82,
+            )
+
+            result = ChangeReviewService(store).apply_decision(item_id=item["id"], decision="accept")
+            second_import = store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-05-10",
+                        description="Plata combustibil card",
+                        amount=-275.0,
+                        currency="RON",
+                        balance=3800.0,
+                        merchant="OMV 1612",
+                        source_file="statement-2.csv",
+                        raw_payload='{"id":"accept-fuel-2"}',
+                    )
+                ],
+                workspace_id=workspace_id,
+            )
+            future_transaction = store.list_transactions(import_batch_id=second_import["import_batch_id"], limit=5)[0]
+
+            self.assertEqual(result["decision"], "accept")
+            self.assertIn("benzina", future_transaction["category_names"])
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
     def test_change_review_records_entity_type_proposal_for_received_invoice_match(self) -> None:
         db_path = ROOT / "test_change_review_entity_type.sqlite3"
         if db_path.exists():

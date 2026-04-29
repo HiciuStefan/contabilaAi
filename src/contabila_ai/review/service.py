@@ -162,10 +162,8 @@ class ReviewService:
         operational_scope: str = "unassigned",
         replace_existing: bool = False,
     ) -> dict[str, int]:
-        resolved_ids = {
-            int(row["id"])
-            for row in self.store.fetch_transactions_by_ids(transaction_ids)
-        }
+        target_rows = self.store.fetch_transactions_by_ids(transaction_ids)
+        resolved_ids = {int(row["id"]) for row in target_rows}
         if not resolved_ids:
             return {"updated_count": 0}
 
@@ -180,7 +178,10 @@ class ReviewService:
             operational_scope=operational_scope,
             replace_existing=replace_existing,
         )
-        return {"updated_count": updated_count}
+        learned_rule = self._learn_category_rule(category_name, target_rows)
+        if learned_rule:
+            self.store.reclassify_transactions()
+        return {"updated_count": updated_count, "learned_rule": int(learned_rule)}
 
     def confirm_transaction(self, transaction_id: int) -> None:
         self.store.confirm_transaction_review(transaction_id)
@@ -246,6 +247,58 @@ class ReviewService:
                 similar_ids.add(int(row["id"]))
         return similar_ids
 
+    def _learn_category_rule(
+        self,
+        category_name: str,
+        target_rows: Iterable[dict[str, Any]],
+    ) -> bool:
+        rows = list(target_rows)
+        if not rows:
+            return False
+
+        merchant_keys = {
+            self._merchant_fingerprint(row.get("merchant"))
+            for row in rows
+            if self._merchant_fingerprint(row.get("merchant"))
+        }
+        description_keys = {
+            self._description_fingerprint(row.get("description"))
+            for row in rows
+            if self._description_fingerprint(row.get("description"))
+        }
+
+        match_field = ""
+        pattern = ""
+        if len(merchant_keys) == 1:
+            match_field = "merchant"
+            pattern = next(iter(merchant_keys))
+        elif len(description_keys) == 1:
+            match_field = "description"
+            pattern = next(iter(description_keys))
+        if not match_field or not pattern:
+            return False
+
+        existing_rules = self.store.list_classification_rules()
+        for rule in existing_rules:
+            if not bool(rule.get("is_active", True)):
+                continue
+            if str(rule.get("match_field") or "") != match_field:
+                continue
+            if str(rule.get("pattern") or "") != pattern:
+                continue
+            if str(rule.get("analysis_category") or "") != category_name:
+                continue
+            return False
+
+        self.store.add_classification_rule(
+            match_field,
+            pattern,
+            analysis_category=category_name,
+            priority=60,
+            confidence=0.93,
+        )
+        return True
+
     def _group_key_for_row(self, row: dict[str, Any]) -> str:
         merchant_key = self._merchant_fingerprint(row.get("merchant"))
         if merchant_key:
@@ -265,7 +318,7 @@ class ReviewService:
         tokens = [
             token
             for token in cleaned.split()
-            if token and token not in LEGAL_SUFFIX_TOKENS
+            if token and token not in LEGAL_SUFFIX_TOKENS and not token.isdigit()
         ]
         return " ".join(tokens)
 

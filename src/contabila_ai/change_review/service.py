@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contabila_ai.classification import normalize_entity_name
+from contabila_ai.review.service import ReviewService
 from contabila_ai.storage.store import SQLiteTransactionStore
 
 
@@ -55,7 +56,12 @@ class ChangeReviewService:
         item = self._store.get_change_review_item(item_id)
         normalized_decision = decision.strip().lower()
         if normalized_decision == "accept" and item["field_name"] == "analysis_category":
-            self._store.assign_analysis_category(item["new_value"], [int(item["transaction_id"])], replace_existing=False)
+            ReviewService(self._store).apply_category(
+                str(item["new_value"]),
+                [int(item["transaction_id"])],
+                apply_to_similar=True,
+                replace_existing=False,
+            )
         if normalized_decision == "accept" and item["field_name"] == "entity_type":
             transaction = self._store.fetch_transaction_by_id(int(item["transaction_id"]))
             if transaction and transaction.get("merchant"):
