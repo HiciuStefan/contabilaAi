@@ -7,7 +7,7 @@ SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from src.contabila_ai.server.http import run
+from contabila_ai.server.http import run
 
 
 if __name__ == "__main__":

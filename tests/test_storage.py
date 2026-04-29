@@ -218,6 +218,121 @@ class StorageTest(unittest.TestCase):
             if db_path.exists():
                 db_path.unlink()
 
+    def test_store_repairs_transactions_foreign_key_after_import_batch_rename(self) -> None:
+        db_path = ROOT / "test_schema_import_batch_fk_repair.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            with closing(sqlite3.connect(db_path)) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute(
+                    """
+                    CREATE TABLE import_batches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source_file TEXT NOT NULL,
+                        source_path TEXT NOT NULL,
+                        transaction_count INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE transactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        import_batch_id INTEGER,
+                        transaction_date TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        currency TEXT NOT NULL,
+                        balance REAL,
+                        merchant TEXT,
+                        source_file TEXT NOT NULL,
+                        raw_payload TEXT NOT NULL,
+                        row_hash TEXT NOT NULL UNIQUE,
+                        economic_kind TEXT,
+                        direction TEXT,
+                        entity_type TEXT,
+                        confidence REAL,
+                        reason TEXT,
+                        FOREIGN KEY(import_batch_id) REFERENCES import_batches(id) ON DELETE SET NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO import_batches (id, source_file, source_path, transaction_count)
+                    VALUES (1, 'legacy.csv', 'legacy.csv', 1)
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO transactions (
+                        import_batch_id,
+                        transaction_date,
+                        description,
+                        amount,
+                        currency,
+                        balance,
+                        merchant,
+                        source_file,
+                        raw_payload,
+                        row_hash,
+                        economic_kind,
+                        direction,
+                        entity_type,
+                        confidence,
+                        reason
+                    ) VALUES (
+                        1, '2025-01-10', 'Legacy row', -10.0, 'RON', 100.0, 'Vendor',
+                        'legacy.csv', '{"id":"legacy"}', 'legacy-hash', 'other_outflow',
+                        'outflow', '', 0.55, 'legacy'
+                    )
+                    """
+                )
+                conn.execute("ALTER TABLE import_batches RENAME TO import_batches_legacy")
+                conn.execute(
+                    """
+                    CREATE TABLE import_batches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source_file TEXT NOT NULL,
+                        source_path TEXT NOT NULL,
+                        source_type TEXT NOT NULL DEFAULT 'bank_statement',
+                        workspace_id INTEGER,
+                        transaction_count INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO import_batches (
+                        id, source_file, source_path, source_type, workspace_id, transaction_count, created_at
+                    )
+                    SELECT
+                        id, source_file, source_path, 'bank_statement', NULL, transaction_count, created_at
+                    FROM import_batches_legacy
+                    """
+                )
+                conn.execute("DROP TABLE import_batches_legacy")
+                conn.commit()
+
+            store = SQLiteTransactionStore(db_path)
+            with closing(sqlite3.connect(db_path)) as conn:
+                foreign_keys = conn.execute("PRAGMA foreign_key_list(transactions)").fetchall()
+            targets = [row[2] for row in foreign_keys if row[3] == "import_batch_id"]
+            rows = store.query("SELECT import_batch_id, description FROM transactions")
+            import_batches = store.query("SELECT id, source_file FROM import_batches ORDER BY id ASC")
+
+            self.assertEqual(targets, ["import_batches"])
+            self.assertEqual(rows[0]["description"], "Legacy row")
+            self.assertGreater(int(rows[0]["import_batch_id"]), 0)
+            self.assertEqual(len(import_batches), 1)
+            self.assertEqual(import_batches[0]["source_file"], "legacy.csv")
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
     def test_store_groups_uploaded_transactions_into_separate_import_batches(self) -> None:
         db_path = ROOT / "test_import_batches.sqlite3"
         if db_path.exists():

@@ -318,8 +318,10 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
 def _ensure_transactions_table_shape(connection: sqlite3.Connection) -> None:
     columns = [row[1] for row in connection.execute("PRAGMA table_info(transactions)").fetchall()]
     unique_indexes = connection.execute("PRAGMA index_list(transactions)").fetchall()
+    foreign_keys = connection.execute("PRAGMA foreign_key_list(transactions)").fetchall()
     has_legacy_row_hash_unique = False
     has_batch_row_hash_unique = False
+    import_batch_fk_targets = [row[2] for row in foreign_keys if row[3] == "import_batch_id"]
 
     for index in unique_indexes:
         if not index[2]:
@@ -333,10 +335,25 @@ def _ensure_transactions_table_shape(connection: sqlite3.Connection) -> None:
         if index_columns == ["import_batch_id", "row_hash"]:
             has_batch_row_hash_unique = True
 
-    if "import_batch_id" in columns and has_batch_row_hash_unique and not has_legacy_row_hash_unique:
+    if (
+        "import_batch_id" in columns
+        and has_batch_row_hash_unique
+        and not has_legacy_row_hash_unique
+        and import_batch_fk_targets == ["import_batches"]
+    ):
         return
 
-    select_import_batch = "import_batch_id" if "import_batch_id" in columns else "NULL AS import_batch_id"
+    select_import_batch = (
+        """
+        CASE
+            WHEN import_batch_id IS NULL THEN NULL
+            WHEN EXISTS (SELECT 1 FROM import_batches WHERE id = import_batch_id) THEN import_batch_id
+            ELSE NULL
+        END AS import_batch_id
+        """.strip()
+        if "import_batch_id" in columns
+        else "NULL AS import_batch_id"
+    )
     connection.execute("ALTER TABLE transactions RENAME TO transactions_legacy")
     connection.execute(TRANSACTIONS_TABLE_SQL)
     connection.execute(
@@ -441,12 +458,16 @@ def _ensure_transaction_category_links_shape(connection: sqlite3.Connection) -> 
             created_at
         )
         SELECT
-            id,
-            transaction_id,
-            category_id,
-            rule_id,
-            created_at
-        FROM transaction_category_links_legacy
+            tcl.id,
+            tcl.transaction_id,
+            tcl.category_id,
+            tcl.rule_id,
+            tcl.created_at
+        FROM transaction_category_links_legacy AS tcl
+        INNER JOIN transactions AS t
+            ON t.id = tcl.transaction_id
+        INNER JOIN analysis_categories AS ac
+            ON ac.id = tcl.category_id
         """
     )
     connection.execute("DROP TABLE transaction_category_links_legacy")

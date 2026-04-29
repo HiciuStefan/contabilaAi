@@ -57,6 +57,18 @@ def parse_statement_bundle(path: str | Path) -> StatementParseResult:
 
 def parse_issued_invoices_path(path: str | Path) -> list[ImportedInvoice]:
     file_path = Path(path)
+    if file_path.is_dir():
+        invoices: list[ImportedInvoice] = []
+        supported_files = sorted(
+            item for item in file_path.rglob("*")
+            if item.is_file() and item.suffix.lower() in {".pdf", ".json", ".csv"}
+        )
+        if not supported_files:
+            raise ValueError(f"Unsupported invoice file type: {file_path.suffix}")
+        for child_path in supported_files:
+            invoices.extend(parse_issued_invoices_path(child_path))
+        return invoices
+
     suffix = file_path.suffix.lower()
     if suffix == ".csv":
         frame = pd.read_csv(file_path)

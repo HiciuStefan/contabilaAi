@@ -251,6 +251,64 @@ class ImporterTest(unittest.TestCase):
             if path.exists():
                 path.unlink()
 
+    def test_parse_issued_invoices_path_supports_directory_inputs(self) -> None:
+        root_dir = ROOT / "_issued_invoice_dir"
+        root_dir.mkdir(exist_ok=True)
+        first_path = root_dir / "inv-1.json"
+        second_path = root_dir / "nested" / "inv-2.json"
+        second_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            first_path.write_text(
+                json.dumps(
+                    {
+                        "invoices": [
+                            {
+                                "invoice_number": "INV-001",
+                                "issue_date": "2025-01-15",
+                                "customer": "Client Alpha SRL",
+                                "total": "11900",
+                                "vat": "1900",
+                                "currency": "RON",
+                                "status": "issued",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            second_path.write_text(
+                json.dumps(
+                    {
+                        "invoices": [
+                            {
+                                "invoice_number": "INV-002",
+                                "issue_date": "2025-01-20",
+                                "customer": "Client Beta SRL",
+                                "total": "5950",
+                                "vat": "950",
+                                "currency": "RON",
+                                "status": "issued",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            invoices = parse_issued_invoices_path(root_dir)
+
+            self.assertEqual(len(invoices), 2)
+            self.assertEqual({invoice.invoice_number for invoice in invoices}, {"INV-001", "INV-002"})
+        finally:
+            if first_path.exists():
+                first_path.unlink()
+            if second_path.exists():
+                second_path.unlink()
+            if second_path.parent.exists():
+                second_path.parent.rmdir()
+            if root_dir.exists():
+                root_dir.rmdir()
+
     def test_real_digexc_invoice_pdfs_extract_invoice_fields(self) -> None:
         paths = canonical_digexc_invoice_pdf_paths()
         if not paths:
