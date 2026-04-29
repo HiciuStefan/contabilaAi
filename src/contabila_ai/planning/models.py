@@ -30,6 +30,7 @@ class QueryPlan:
     metric_label: str = "suma"
     support_level: str = "exact"
     years: list[int] = field(default_factory=list)
+    months: list[int] = field(default_factory=list)
     relative_period: str | None = None
     group_by: str | None = None
     economic_kind: str | None = None

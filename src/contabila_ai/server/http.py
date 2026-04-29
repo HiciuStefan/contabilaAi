@@ -14,7 +14,7 @@ from contabila_ai.change_review import ChangeReviewService
 from contabila_ai.importing import import_invoice_documents, parse_issued_invoices_path, parse_statement_bundle
 from contabila_ai.matching import MatchingService
 from contabila_ai.memory import BusinessMemoryService
-from contabila_ai.planning import build_query_plan
+from contabila_ai.planning import build_default_intent_provider, build_query_plan
 from contabila_ai.review import ReviewService
 from contabila_ai.storage.store import SQLiteTransactionStore
 from contabila_ai.workspaces.service import WorkspaceService
@@ -29,6 +29,7 @@ class UploadedFile:
 def build_app_services(
     data_dir: Path | None = None,
     initial_statement_path: Path | None = None,
+    intent_provider: Any | None = None,
 ) -> dict[str, Any]:
     root_dir = Path(__file__).resolve().parents[3]
     resolved_data_dir = Path(data_dir) if data_dir is not None else root_dir / "data"
@@ -41,6 +42,7 @@ def build_app_services(
     matching = MatchingService(store)
     change_review = ChangeReviewService(store)
     workspaces = WorkspaceService(store, review)
+    resolved_intent_provider = intent_provider if intent_provider is not None else build_default_intent_provider()
     services = {
         "root_dir": root_dir,
         "data_dir": resolved_data_dir,
@@ -52,6 +54,7 @@ def build_app_services(
         "matching": matching,
         "change_review": change_review,
         "workspaces": workspaces,
+        "intent_provider": resolved_intent_provider,
         "startup_import": None,
     }
     if initial_statement_path is not None:
@@ -481,7 +484,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                 }
             )
             return
-        plan = build_query_plan(question)
+        plan = build_query_plan(question, semantic_provider=self.services.get("intent_provider"))
         if plan.support_level in {"clarify", "unsupported"}:
             self._send_json(
                 {
@@ -495,6 +498,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                         "support_level": plan.support_level,
                         "group_by": plan.group_by,
                         "years": plan.years,
+                        "months": getattr(plan, "months", []),
                         "direction": plan.direction,
                         "economic_kind": plan.economic_kind,
                         "analysis_category": plan.analysis_category,
@@ -532,6 +536,7 @@ class ContabilaAiRequestHandler(BaseHTTPRequestHandler):
                     "metric_label": plan.metric_label,
                     "support_level": plan.support_level,
                     "years": plan.years,
+                    "months": getattr(plan, "months", []),
                     "group_by": plan.group_by,
                     "economic_kind": plan.economic_kind,
                     "excluded_economic_kinds": plan.excluded_economic_kinds,

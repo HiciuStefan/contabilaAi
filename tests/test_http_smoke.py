@@ -28,6 +28,14 @@ from contabila_ai.importing.models import ImportedTransaction, StatementParseRes
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
+class FakeIntentProvider:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def resolve(self, raw_text: str):
+        return dict(self._payload)
+
+
 class HttpSmokeTest(unittest.TestCase):
     def test_index_contains_workspace_home_shell(self) -> None:
         index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
@@ -231,6 +239,87 @@ class HttpSmokeTest(unittest.TestCase):
             self.assertEqual(payload["rows"][0]["expense_total"], 1000.0)
             self.assertEqual(len(payload["transaction_rows"]), 2)
             self.assertIn("relatia cu ai excellence", payload["answer"].lower())
+        finally:
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+            if data_dir.exists():
+                data_dir.rmdir()
+
+    def test_chat_uses_semantic_intent_provider_for_month_category_question(self) -> None:
+        data_dir = ROOT / "test_http_data_chat_semantic_intent"
+        if data_dir.exists():
+            db_path = data_dir / "contabila_ai.sqlite3"
+            if db_path.exists():
+                db_path.unlink()
+        else:
+            data_dir.mkdir(parents=True)
+        try:
+            services = build_app_services(
+                data_dir=data_dir,
+                intent_provider=FakeIntentProvider(
+                    {
+                        "metric": "expense_total",
+                        "analysis_category": "benzina",
+                        "months": [4],
+                        "direction": "outflow",
+                        "support_level": "exact",
+                    }
+                ),
+            )
+            services["review"].confidence_threshold = 0.5
+            services["store"].insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-04",
+                        description="Alimentare OMV aprilie",
+                        amount=-300.0,
+                        currency="RON",
+                        balance=4700.0,
+                        merchant="OMV",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"chat-fuel-april"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-05-04",
+                        description="Alimentare OMV mai",
+                        amount=-500.0,
+                        currency="RON",
+                        balance=4200.0,
+                        merchant="OMV",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"chat-fuel-may"}',
+                    ),
+                ]
+            )
+            transaction_ids = [row["id"] for row in services["store"].list_transactions(limit=10)]
+            services["store"].assign_analysis_category("benzina", transaction_ids, replace_existing=False)
+            for row in services["store"].list_transactions(limit=10):
+                services["review"].confirm_transaction(int(row["id"]))
+
+            handler = partial(ContabilaAiRequestHandler, services=services)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}"
+            try:
+                request = Request(
+                    f"{base_url}/api/chat",
+                    data=json.dumps({"question": "cat am cheltuit cu benzina pe aprilie"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            self.assertEqual(payload["plan"]["analysis_category"], "benzina")
+            self.assertEqual(payload["plan"]["months"], [4])
+            self.assertEqual(payload["rows"][0]["metric_value"], 300.0)
+            self.assertEqual(payload["rows"][0]["transaction_count"], 1)
         finally:
             db_path = data_dir / "contabila_ai.sqlite3"
             if db_path.exists():

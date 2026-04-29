@@ -2089,6 +2089,10 @@ class SQLiteTransactionStore:
             placeholders = ", ".join("?" for _ in plan.years)
             clauses.append(f"CAST(strftime('%Y', transaction_date) AS INTEGER) IN ({placeholders})")
             params.extend(plan.years)
+        if getattr(plan, "months", None):
+            placeholders = ", ".join("?" for _ in plan.months)
+            clauses.append(f"CAST(strftime('%m', transaction_date) AS INTEGER) IN ({placeholders})")
+            params.extend(plan.months)
         return "WHERE " + " AND ".join(clauses), tuple(params)
 
     def _build_invoice_rows_query(self, plan: QueryPlan) -> tuple[str, tuple[Any, ...]]:
@@ -2223,6 +2227,10 @@ class SQLiteTransactionStore:
             placeholders = ", ".join("?" for _ in plan.years)
             clauses.append(f"CAST(strftime('%Y', issue_date) AS INTEGER) IN ({placeholders})")
             params.extend(plan.years)
+        if getattr(plan, "months", None):
+            placeholders = ", ".join("?" for _ in plan.months)
+            clauses.append(f"CAST(strftime('%m', issue_date) AS INTEGER) IN ({placeholders})")
+            params.extend(plan.months)
         return "WHERE " + " AND ".join(clauses), tuple(params)
 
     def _invoice_filters(self, plan: QueryPlan) -> tuple[str, tuple[Any, ...]]:
@@ -2232,6 +2240,10 @@ class SQLiteTransactionStore:
             placeholders = ", ".join("?" for _ in plan.years)
             clauses.append(f"CAST(strftime('%Y', issue_date) AS INTEGER) IN ({placeholders})")
             params.extend(plan.years)
+        if getattr(plan, "months", None):
+            placeholders = ", ".join("?" for _ in plan.months)
+            clauses.append(f"CAST(strftime('%m', issue_date) AS INTEGER) IN ({placeholders})")
+            params.extend(plan.months)
         return "WHERE " + " AND ".join(clauses), tuple(params)
 
     def _has_matching_issued_invoices(self, plan: QueryPlan) -> bool:
@@ -2290,6 +2302,12 @@ class SQLiteTransactionStore:
                 """.strip()
             )
             params.extend([import_batch_id, import_batch_id, workspace_id, workspace_id])
+        if getattr(plan, "months", None):
+            placeholders = ", ".join("?" for _ in plan.months)
+            clauses.append(
+                f"CAST(strftime('%m', {table_alias}.transaction_date) AS INTEGER) IN ({placeholders})"
+            )
+            params.extend(plan.months)
 
         if plan.economic_kind:
             clauses.append(f"{table_alias}.economic_kind = ?")

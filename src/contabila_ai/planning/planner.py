@@ -5,6 +5,7 @@ import re
 from contabila_ai.classification import normalize_text
 
 from .models import QueryPlan
+from .semantic import merge_semantic_plan
 
 
 SEARCH_TOKENS = (
@@ -21,6 +22,7 @@ COUNT_TOKENS = ("cate", "cate", "numar", "numar")
 EXPENSE_TOKENS = (
     "cheltuiala",
     "cheltuieli",
+    "cheltuit",
     "plata",
     "plati",
     "plati",
@@ -127,11 +129,26 @@ OPERATIONAL_EXPENSE_EXCLUSIONS = ["recuperare_creditare", "internal_transfer"]
 CREDITARE_FOCUS_RECOVERY_TOKENS = ("recuper", "inapoi", "return")
 CREDITARE_FOCUS_REMAINING_TOKENS = ("ramas", "rest", "mai am", "neincasat", "de recuperat")
 CREDITARE_FOCUS_CREDITED_TOKENS = ("creditat", "creditare", "imprumutat", "bagat")
+MONTH_NAME_MAP = {
+    "ianuarie": 1,
+    "februarie": 2,
+    "martie": 3,
+    "aprilie": 4,
+    "mai": 5,
+    "iunie": 6,
+    "iulie": 7,
+    "august": 8,
+    "septembrie": 9,
+    "octombrie": 10,
+    "noiembrie": 11,
+    "decembrie": 12,
+}
 
 
-def build_query_plan(question: str) -> QueryPlan:
+def build_query_plan(question: str, semantic_provider=None) -> QueryPlan:
     normalized = _normalize_question(question)
     years = _extract_years(normalized)
+    months = _extract_months(normalized)
     relative_period = _detect_relative_period(normalized)
     requested_profit = "profit" in normalized
     metric_info = _detect_metric_info(normalized, requested_profit)
@@ -147,13 +164,14 @@ def build_query_plan(question: str) -> QueryPlan:
     creditare_focus = _detect_creditare_focus(normalized, str(metric_info["metric"]))
     include_creditare_balance = _should_include_creditare_balance(normalized, str(metric_info["metric"]))
 
-    return QueryPlan(
+    plan = QueryPlan(
         raw_question=question,
         mode=mode,
         metric=str(metric_info["metric"]),
         metric_label=str(metric_info["label"]),
         support_level=str(metric_info["support_level"]),
         years=years,
+        months=months,
         relative_period=relative_period,
         group_by=group_by,
         economic_kind=economic_kind,
@@ -166,6 +184,13 @@ def build_query_plan(question: str) -> QueryPlan:
         creditare_focus=creditare_focus,
         include_creditare_balance=include_creditare_balance,
     )
+    if semantic_provider is not None and _should_try_semantic_intent(plan, normalized):
+        try:
+            payload = semantic_provider.resolve(question)
+        except Exception:
+            payload = {}
+        plan = merge_semantic_plan(plan, payload if isinstance(payload, dict) else {})
+    return plan
 
 
 def _normalize_question(question: str) -> str:
@@ -186,6 +211,18 @@ def _normalize_question(question: str) -> str:
 
 def _extract_years(question: str) -> list[int]:
     return [int(year) for year in sorted(set(re.findall(r"\b(20\d{2})\b", question)))]
+
+
+def _extract_months(question: str) -> list[int]:
+    months: list[int] = []
+    for name, month_number in MONTH_NAME_MAP.items():
+        if name == "mai":
+            pattern = r"(?:\bin\s+mai\b|\bpe\s+mai\b|\bluna\s+mai\b|\bdin\s+mai\b)"
+        else:
+            pattern = rf"\b{name}\b"
+        if re.search(pattern, question) and month_number not in months:
+            months.append(month_number)
+    return months
 
 
 def _detect_mode(question: str, analysis_category: str | None) -> str:
@@ -468,3 +505,14 @@ def _needs_clarification(question: str) -> bool:
     if "profit" in question or "proiectul " in question or "categoria " in question:
         return False
     return True
+
+
+def _should_try_semantic_intent(plan: QueryPlan, normalized_question: str) -> bool:
+    if plan.support_level == "clarify":
+        return True
+    if plan.analysis_category is None and re.search(r"\bcu\s+[a-z0-9_-]{3,}\b", normalized_question):
+        if plan.metric in {"expense_total", "income_total", "transaction_count", "total_amount"}:
+            return True
+    if not plan.months and any(re.search(rf"\b{name}\b", normalized_question) for name in MONTH_NAME_MAP):
+        return True
+    return False

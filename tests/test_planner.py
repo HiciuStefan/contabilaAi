@@ -18,6 +18,14 @@ from contabila_ai.server.http import render_answer  # noqa: E402
 from contabila_ai.storage.store import SQLiteTransactionStore  # noqa: E402
 
 
+class FakeIntentProvider:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def resolve(self, raw_text: str):
+        return dict(self._payload)
+
+
 class PlannerTest(unittest.TestCase):
     def test_build_query_plan_extracts_multi_year_creditare_question(self) -> None:
         plan = build_query_plan("cat am avut creditare pe 2023/2024/2025")
@@ -84,6 +92,53 @@ class PlannerTest(unittest.TestCase):
         self.assertIsNone(plan.entity_name)
         self.assertEqual(plan.direction, "outflow")
         self.assertFalse(plan.requested_profit)
+
+    def test_build_query_plan_extracts_month_name(self) -> None:
+        plan = build_query_plan("cat am cheltuit in aprilie")
+
+        self.assertEqual(plan.months, [4])
+        self.assertEqual(plan.direction, "outflow")
+
+    def test_build_query_plan_does_not_treat_mai_am_as_month_filter(self) -> None:
+        plan = build_query_plan("cat mai am de platit pe facturile primite")
+
+        self.assertEqual(plan.months, [])
+        self.assertEqual(plan.metric, "invoice_residual_total")
+
+    def test_build_query_plan_uses_semantic_intent_for_benzina_question(self) -> None:
+        plan = build_query_plan(
+            "cat am cheltuit cu benzina pe aprilie",
+            semantic_provider=FakeIntentProvider(
+                {
+                    "metric": "expense_total",
+                    "analysis_category": "benzina",
+                    "months": [4],
+                    "direction": "outflow",
+                    "support_level": "exact",
+                }
+            ),
+        )
+
+        self.assertEqual(plan.metric, "expense_total")
+        self.assertEqual(plan.analysis_category, "benzina")
+        self.assertEqual(plan.months, [4])
+        self.assertEqual(plan.direction, "outflow")
+
+    def test_build_query_plan_keeps_deterministic_plan_when_semantic_payload_is_invalid(self) -> None:
+        plan = build_query_plan(
+            "cat am cheltuit cu benzina pe aprilie",
+            semantic_provider=FakeIntentProvider(
+                {
+                    "metric": "made_up_metric",
+                    "months": [99],
+                    "analysis_category": "",
+                }
+            ),
+        )
+
+        self.assertEqual(plan.metric, "expense_total")
+        self.assertEqual(plan.months, [4])
+        self.assertIsNone(plan.analysis_category)
 
     def test_build_query_plan_marks_profit_question_as_net_cashflow_request(self) -> None:
         plan = build_query_plan("care a fost profitul pe 2024")
@@ -749,6 +804,61 @@ class PlannerTest(unittest.TestCase):
                     {"group_key": "2024-H1", "metric_value": 500.0, "transaction_count": 1},
                     {"group_key": "2024-H2", "metric_value": 700.0, "transaction_count": 1},
                 ],
+            )
+        finally:
+            if db_path.exists():
+                db_path.unlink()
+
+    def test_store_execute_plan_filters_category_by_month(self) -> None:
+        db_path = ROOT / "test_planner_month_category.sqlite3"
+        if db_path.exists():
+            db_path.unlink()
+        try:
+            store = SQLiteTransactionStore(db_path)
+            import_result = store.insert_many(
+                [
+                    ImportedTransaction(
+                        transaction_date="2025-04-05",
+                        description="Alimentare OMV aprilie",
+                        amount=-300.0,
+                        currency="RON",
+                        balance=4700.0,
+                        merchant="OMV",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"fuel-april"}',
+                    ),
+                    ImportedTransaction(
+                        transaction_date="2025-05-07",
+                        description="Alimentare OMV mai",
+                        amount=-500.0,
+                        currency="RON",
+                        balance=4200.0,
+                        merchant="OMV",
+                        source_file="statement.csv",
+                        raw_payload='{"id":"fuel-may"}',
+                    ),
+                ]
+            )
+            rows = store.list_transactions(import_batch_id=import_result["import_batch_id"], limit=10)
+            store.assign_analysis_category("benzina", [int(row["id"]) for row in rows], replace_existing=False)
+
+            plan = build_query_plan(
+                "cat am cheltuit cu benzina pe aprilie",
+                semantic_provider=FakeIntentProvider(
+                    {
+                        "metric": "expense_total",
+                        "analysis_category": "benzina",
+                        "months": [4],
+                        "direction": "outflow",
+                        "support_level": "exact",
+                    }
+                ),
+            )
+            result = store.execute_plan(plan)
+
+            self.assertEqual(
+                result.rows,
+                [{"group_key": None, "metric_value": 300.0, "transaction_count": 1}],
             )
         finally:
             if db_path.exists():
